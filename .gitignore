@@ -1,0 +1,3 @@
+# the binaries built locally (goreleaser builds the released ones into dist/)
+/ansibleforms-installer
+/dist/

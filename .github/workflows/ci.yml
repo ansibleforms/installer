@@ -1,0 +1,52 @@
+name: CI
+
+# Checks every pull request and every push to main as a release would build it: the code is
+# formatted (gofmt), go vet finds nothing, the tests pass, and the installer builds for Linux
+# on amd64 and arm64. A Dependabot bump of a Go module or an action has to pass it before it
+# is merged.
+#
+# The job name is a required check in the main ruleset: renaming it breaks that rule.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Formatted
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::not formatted with gofmt: $unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: |
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -o "/tmp/ansibleforms-installer_linux_$arch" .
+          done

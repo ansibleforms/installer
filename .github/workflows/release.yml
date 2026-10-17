@@ -1,0 +1,104 @@
+name: Release
+
+# Releases the installer with AnsibleForms: the same version, its binaries attached. When the
+# app releases, its release workflow sends an app-release repository_dispatch here with the
+# tag (7.3.0). This workflow tests the installer, builds it for Linux on amd64 and arm64 with
+# that version written in (main.version: the version it installs by default), and creates
+# the release v7.3.0 with the binaries and their checksums.
+#
+# Run it by hand ("Run workflow") with a version to catch up on a release, or to build one
+# again: an existing release keeps its tag and gets its binaries replaced.
+#
+# GITHUB_TOKEN is enough here: it creates the tag and the release of this repository. The
+# dispatch itself comes from the ansibleforms-release GitHub App of the app's repository.
+
+on:
+  repository_dispatch:
+    types: [app-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'AnsibleForms version to release the installer for, e.g. 7.3.0'
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Work out the version
+        id: v
+        env:
+          RAW: ${{ github.event.client_payload.tag || inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${RAW#v}"
+          # final releases only: a release candidate gets no installer
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$RAW' is not a release version (x.y.z)."; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Installer for AnsibleForms $version"
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: |
+          go vet ./...
+          go test ./...
+
+      # static binaries (no cgo), the version written in, debug symbols left out
+      - name: Build
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w -X main.version=$VERSION" \
+              -o "dist/ansibleforms-installer_linux_$arch" .
+          done
+          (cd dist && sha256sum ansibleforms-installer_linux_* > checksums.txt && cat checksums.txt)
+
+      # The installer of an older line's patch must not take GitHub's "Latest release" badge
+      # from the newer major: latest only when this is the highest version released.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.v.outputs.version }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            echo "$TAG existed: its binaries were replaced"
+            exit 0
+          fi
+          highest=$( (gh release list --limit 200 --json tagName --jq '.[].tagName'; echo "$TAG") \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          latest=false
+          [ "$highest" = "$TAG" ] && latest=true
+          notes="The installer of AnsibleForms $VERSION, which it installs by default.
+
+          What changes in AnsibleForms $VERSION: https://github.com/ansibleforms/ansibleforms/releases/tag/$VERSION
+
+          \`\`\`bash
+          curl -fsSL https://ansibleforms.com/install | sh
+          \`\`\`"
+          gh release create "$TAG" dist/* --title "$TAG" --target "$GITHUB_SHA" \
+            --notes "$notes" --latest="$latest"
+          echo "Released $TAG (latest: $latest)"

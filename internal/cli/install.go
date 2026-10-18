@@ -101,14 +101,13 @@ type plan struct {
 	role, mode string
 	runtime    system.Runtime
 
-	dir, name      string
-	port           int
-	tls, cert, key string
-	admin          string
-
-	how, join, appURL, runnerMode, host string
-	trust                               bool
-	appVersion                          string
+	dir, name                      string
+	port                           int
+	tls, cert, key                 string
+	admin                          string
+	join, appURL, runnerMode, host string
+	trust                          bool
+	appVersion                     string
 
 	namespace, release, hostname, ingressClass, storageClass string
 	kubeTLS                                                  bool
@@ -263,25 +262,7 @@ func install(ctx context.Context, f Flags) error {
 			}
 			return err
 		}},
-		// a runner : how it registers, its app, its mode
-		{label: "join", skip: func() bool { return !runner() || f.JoinToken != "" || f.AppURL != "" }, ask: func() error {
-			ui.Explain(i18n.T("runner.registerHelp"))
-			how, err := ui.Select(i18n.T("runner.register"), []ui.Option{
-				{Label: i18n.T("runner.registerJoin"), Value: "join", Hint: i18n.T("runner.registerJoinHint")},
-				{Label: i18n.T("runner.registerManual"), Value: "manual", Hint: i18n.T("runner.registerManualHint")},
-			}, orStr(p.how, "join"))
-			p.how = how
-			return err
-		}},
-		{label: "join", skip: func() bool { return !runner() || f.JoinToken != "" || p.how != "join" }, ask: func() error {
-			ui.Explain(i18n.T("runner.joinHelp"))
-			j, err := ui.Input(i18n.T("runner.join"), p.join, true, func(s string) error {
-				_, err := compose.ParseJoin(s)
-				return err
-			})
-			p.join = j
-			return err
-		}},
+		// a runner : its app (it asks to join, an admin approves it there), its mode
 		{label: "app", skip: func() bool { return !runner() }, ask: func() error {
 			return askApp(ctx, f, p)
 		}},
@@ -500,7 +481,7 @@ func review(p *plan) []string {
 		if p.join != "" {
 			out = append(out, row("register", i18n.T("runner.registerJoinShort")))
 		} else {
-			out = append(out, row("register", i18n.T("runner.registerManualShort")))
+			out = append(out, row("register", i18n.T("runner.registerApproveShort")))
 		}
 	case p.mode == string(state.Kubernetes):
 		out = append(out, row("role", i18n.T("install.roleControllerShort")), row("engine", i18n.T("install.modeKubernetesShort")),
@@ -534,19 +515,45 @@ func askApp(ctx context.Context, f Flags, p *plan) error {
 			p.appURL = j.AppURL
 		}
 	}
-	if p.appURL == "" || (f.AppURL == "" && (p.join == "" || !strings.HasPrefix(p.join, "afjoin2."))) {
-		if ui.Unattended && p.appURL == "" {
-			return errors.New(i18n.T("runner.needApp"))
-		}
-		if !ui.Unattended {
-			ui.Explain(i18n.T("runner.appUrlHelp"))
-			u, err := ui.Input(i18n.T("runner.appUrl"), p.appURL, false, validURL)
-			if err != nil {
-				return err
+	// asked when nothing gave it ; asked again, the reason under the field, when it did not do :
+	// Enter tries the address corrected, Esc goes back a step
+	ask := p.appURL == "" || (f.AppURL == "" && (p.join == "" || !strings.HasPrefix(p.join, "afjoin2.")))
+	for {
+		if ask {
+			if ui.Unattended && p.appURL == "" {
+				return errors.New(i18n.T("runner.needApp"))
 			}
-			p.appURL = u
+			if !ui.Unattended {
+				ui.Explain(i18n.T("runner.appUrlHelp"))
+				u, err := ui.Input(i18n.T("runner.appUrl"), p.appURL, false, validURL)
+				if err != nil {
+					return err
+				}
+				p.appURL = u
+			}
 		}
+		err := reachApp(ctx, f, p)
+		if err == nil || ui.Unattended || errors.Is(err, ui.ErrBack) || errors.Is(err, ui.ErrAborted) {
+			return err
+		}
+		ui.Problem(err.Error())
+		ask = true
 	}
+}
+
+// reachApp reaches the app at the address given : its certificate (trusted when the person
+// says so) and its version, which the runner runs.
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	f: the flags.
+//	p: the answers.
+//
+// Errors:
+//
+//	When the app cannot be reached, is too old, or its certificate is refused.
+func reachApp(ctx context.Context, f Flags, p *plan) error {
 	p.appURL = strings.TrimRight(p.appURL, "/")
 	ui.Step(i18n.T("runner.checkingApp", "url", p.appURL))
 	v, trusted, err := health.AppVersion(ctx, p.appURL)
@@ -664,15 +671,10 @@ func doRunner(ctx context.Context, p *plan) error {
 	if r.JoinToken != "" {
 		lines = append(lines, "", i18n.T("runner.doneRegistered"))
 	} else {
-		// by hand : what to add under Connections > Runners, the token in plain text this once
-		lines = append(lines, "", i18n.T("runner.doneManual"),
-			"  "+i18n.T("runner.doneManualName", "name", st.Name),
-			"  "+i18n.T("runner.doneManualMode", "mode", i18n.T("runner.mode_"+r.Mode)),
-			"  "+i18n.T("runner.doneManualToken", "token", res.Token))
-		if r.Mode == "inbound" {
-			lines = append(lines, "  "+i18n.T("runner.doneManualAddress", "url", res.URL))
-		}
-		lines = append(lines, i18n.T("runner.doneManualSecret"))
+		// it asked to join : an admin approves it under Connections > Runners, after checking
+		// the fingerprint of its token there is this one
+		lines = append(lines, "", i18n.T("runner.doneApprove"),
+			"", i18n.T("runner.doneFingerprint", "fingerprint", compose.Fingerprint(res.Token)))
 	}
 	lines = append(lines, "", i18n.T("done.folder", "dir", st.Dir))
 	ui.Summary(i18n.T("runner.done", "version", st.Version), lines)

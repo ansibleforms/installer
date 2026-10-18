@@ -2,7 +2,9 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -474,6 +476,22 @@ func ParseJoin(s string) (Join, error) {
 		return j, errors.New(i18n.T("join.invalid"))
 	}
 	return j, nil
+}
+
+// Fingerprint is a token's fingerprint as AnsibleForms shows it on a runner waiting for
+// approval: the first 8 hexadecimal digits of its SHA-256, as abcd-ef12.
+//
+// Args:
+//
+//	token: the RTE's token.
+//
+// Returns:
+//
+//	The fingerprint.
+func Fingerprint(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	h := hex.EncodeToString(sum[:])
+	return h[:4] + "-" + h[4:8]
 }
 
 // OutboundIP is this server's address on the network : the one its default route leaves from

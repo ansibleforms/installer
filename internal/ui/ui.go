@@ -169,6 +169,27 @@ func Explain(text string) {
 	help = text
 }
 
+// problem is shown under the next question, in red, until answered (Problem)
+var problem string
+
+// Problem says why the next question is asked again : its answer of before did not do (an
+// address that does not answer). The full screen shows it under the field ; the plain output
+// as a warning before the question.
+//
+// Args:
+//
+//	text: what went wrong.
+func Problem(text string) {
+	problem = text
+}
+
+// takeProblem gives the problem set for this question, and clears it.
+func takeProblem() string {
+	p := problem
+	problem = ""
+	return p
+}
+
 // takeHelp gives the help set for this question, and clears it.
 func takeHelp() string {
 	h := help
@@ -634,7 +655,7 @@ func Input(title, def string, secret bool, validate func(string) error) (string,
 		return def, nil
 	}
 	if Fullscreen {
-		a := tui.Ask(tui.Question{Kind: tui.Input, Title: title, Help: h, Default: def, Secret: secret, Validate: validate, First: current == 0})
+		a := tui.Ask(tui.Question{Kind: tui.Input, Title: title, Help: h, Default: def, Secret: secret, Validate: validate, Error: takeProblem(), First: current == 0})
 		if err := answerErr(a); err != nil {
 			return "", err
 		}
@@ -644,6 +665,9 @@ func Input(title, def string, secret bool, validate func(string) error) (string,
 		}
 		Answered(shown)
 		return a.Value, nil
+	}
+	if p := takeProblem(); p != "" {
+		Warn(p)
 	}
 	value := def
 	in := huh.NewInput().Title(title).Value(&value)

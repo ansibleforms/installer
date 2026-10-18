@@ -111,6 +111,9 @@ type Question struct {
 	Secret bool
 	// Validate checks an Input ; its error shows under the field.
 	Validate func(string) error
+	// Error is shown under an Input when it opens : why its answer of before did not do (an
+	// address that does not answer), to be corrected
+	Error string
 	// Repeat asks an Input a second time under the first, its label (a new password) ;
 	// Mismatch is the error when the two differ. Left empty, the first is answered alone.
 	Repeat, Mismatch string
@@ -346,7 +349,7 @@ func (m model) repeatKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) ask(msg askMsg) model {
 	q := msg.q
 	m.phase = asking
-	m.q, m.reply, m.errMsg = &q, msg.reply, ""
+	m.q, m.reply, m.errMsg = &q, msg.reply, q.Error
 	switch q.Kind {
 	case Select:
 		m.cursor = -1

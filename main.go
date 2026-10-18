@@ -82,7 +82,7 @@ func main() {
 	flag.StringVar(&o.Cert, "cert", "", "certificate file (--tls own)")
 	flag.StringVar(&o.Key, "key", "", "key file (--tls own)")
 	flag.StringVar(&o.AdminPassword, "admin-password", "", "first admin password (default: generated)")
-	flag.StringVar(&o.JoinToken, "join", "", "join string or join token from Connections > Runners > Join tokens (runner)")
+	flag.StringVar(&o.JoinToken, "join", "", "a join token that approves the Runner at once, for unattended installs (runner)")
 	flag.StringVar(&o.AppURL, "app-url", "", "the app's address, https://forms.example.com (runner)")
 	flag.StringVar(&o.RunnerMode, "runner-mode", "", "outbound (the RTE dials the app) or inbound (the app dials the RTE) (runner)")
 	flag.StringVar(&o.Host, "host", "", "this server's address the app dials (inbound runner)")

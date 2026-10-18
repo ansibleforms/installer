@@ -65,7 +65,7 @@ func Backup(ctx context.Context, st *state.State) (string, error) {
 	}
 	stamp := time.Now().Format("20060102-150405")
 	dump := filepath.Join(dir, fmt.Sprintf("ansibleforms-%s-%s.sql", st.Version, stamp))
-	name, args := composeCmd(system.Runtime(st.Runtime), st.Name, "exec", "-T", "mysqldb", "sh", "-c", dumpScript)
+	name, args := composeCmd(system.Runtime(st.Runtime), Project(st), "exec", "-T", "mysqldb", "sh", "-c", dumpScript)
 	ui.Step(i18n.T("compose.dumping"))
 	if err := system.ToFile(ctx, st.Dir, dump, name, args...); err != nil {
 		return "", err
@@ -90,7 +90,7 @@ func Backup(ctx context.Context, st *state.State) (string, error) {
 //
 //	When the restore fails.
 func restore(ctx context.Context, st *state.State, dump string) error {
-	name, args := composeCmd(system.Runtime(st.Runtime), st.Name, "exec", "-T", "mysqldb", "sh", "-c", restoreScript)
+	name, args := composeCmd(system.Runtime(st.Runtime), Project(st), "exec", "-T", "mysqldb", "sh", "-c", restoreScript)
 	return system.FromFile(ctx, st.Dir, dump, name, args...)
 }
 
@@ -390,7 +390,7 @@ TimeoutStartSec=600
 
 [Install]
 WantedBy=%s
-`, st.Name, st.Dir, podman, st.Name, podman, st.Name, map[bool]string{true: "multi-user.target", false: "default.target"}[os.Geteuid() == 0])
+`, st.Name, st.Dir, podman, Project(st), podman, Project(st), map[bool]string{true: "multi-user.target", false: "default.target"}[os.Geteuid() == 0])
 	p := unitPath(st)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err

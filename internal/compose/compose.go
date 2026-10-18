@@ -118,6 +118,23 @@ func pullArgs(st *state.State) []string {
 	return []string{"pull"}
 }
 
+// Project is an installation's compose project: its own when it has one (taken over from an
+// installation made by hand), else its instance name, as the installer names it.
+//
+// Args:
+//
+//	st: the installation.
+//
+// Returns:
+//
+//	The compose project.
+func Project(st *state.State) string {
+	if st.Project != "" {
+		return st.Project
+	}
+	return st.Name
+}
+
 // runCompose runs compose in the installation folder, its output shown.
 //
 // Args:
@@ -130,7 +147,7 @@ func pullArgs(st *state.State) []string {
 //
 //	When compose fails.
 func runCompose(ctx context.Context, st *state.State, args ...string) error {
-	name, all := composeCmd(system.Runtime(st.Runtime), st.Name, args...)
+	name, all := composeCmd(system.Runtime(st.Runtime), Project(st), args...)
 	return system.Run(ctx, st.Dir, name, all...)
 }
 

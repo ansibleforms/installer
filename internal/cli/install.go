@@ -136,6 +136,18 @@ func install(ctx context.Context, f Flags) error {
 			return err
 		}
 		return upgrade(ctx, f)
+	} else if errors.Is(err, state.ErrNone) {
+		// no installer.json : an AnsibleForms installed another way is taken over and upgraded,
+		// never doubled by a new installation unless the person says so
+		if found := findInstalls(ctx); len(found) > 0 {
+			st, err := offerFound(ctx, f, found, true)
+			if err != nil {
+				return err
+			}
+			if st != nil {
+				return upgrade(ctx, f)
+			}
+		}
 	}
 	v, err := targetVersion(ctx, f)
 	if err != nil {

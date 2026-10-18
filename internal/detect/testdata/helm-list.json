@@ -1,0 +1,4 @@
+[
+  {"name": "ansibleforms", "namespace": "forms", "revision": "3", "updated": "2026-09-01 10:00:00 +0000 UTC", "status": "deployed", "chart": "ansibleforms-7.2.0", "app_version": "7.2.0"},
+  {"name": "ingress", "namespace": "ingress-nginx", "revision": "1", "updated": "2026-09-01 10:00:00 +0000 UTC", "status": "deployed", "chart": "ingress-nginx-4.11.0", "app_version": "1.11.0"}
+]

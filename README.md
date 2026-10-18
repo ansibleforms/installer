@@ -20,6 +20,7 @@ A full-screen wizard asks one question at a time, with Esc to go back and a revi
 - **Docker, Podman, Kubernetes or native:** Compose, the Helm chart, or systemd services, no containers
 - **Container engine included:** installs Docker or Podman when neither is on the server, after asking
 - **Safe upgrades:** backs up the database first and rolls back if the new version does not respond
+- **Finds what is there:** takes over an AnsibleForms installed by hand, by Helm or natively
 - **Unattended mode:** every question has a flag, and `--yes` answers the rest with their defaults
 
 ## Versions
@@ -40,6 +41,33 @@ Run `ansibleforms-installer --help` for every flag; without a command, the insta
 | `release-notes` | show the release notes of a version |
 | `uninstall` | remove the installation, keeping its data unless asked otherwise |
 | `version` | print the installer's version |
+
+## Existing installations
+
+The installer remembers what it installed in `installer.json` (`/etc/ansibleforms` for root, else `~/.config/ansibleforms`).
+Without that file, `install`, `upgrade` and `status` look for an AnsibleForms already on the server, whatever installed it.
+
+| Found | How it is found | Taken over when |
+|---|---|---|
+| Docker or Podman | containers of the app or RTE image, grouped by compose project | the folder holds the docker repository's compose file and `.env` |
+| A 7.2 Runner | an RTE alone in its compose project, with the app's `DB_*` and no `RTE_MODE` (database mode) | its compose file is readable; see below |
+| Kubernetes | Helm releases of the `ansibleforms` chart, Deployments and StatefulSets of its images | it is a release of the chart; its current values become its values file |
+| Native | systemd services that run AnsibleForms with Node.js | they follow the installer's layout: `releases/`, `current`, `app.env`, `rte.env` |
+| No engine | the app or an RTE answering on a usual port (443, 3000, 3001, 8000, 8001, 8010, 8443) | never: it runs from source or by hand |
+
+The installer shows what it found and offers to take it over and upgrade it, or to stop; it saves `installer.json` only once you confirm.
+An installation it cannot take over is listed with the reason and what to do by hand, and a second installation beside it needs your explicit confirmation.
+Only the app's and the RTE's images count: a MySQL container named after AnsibleForms is not an installation.
+
+On Docker or Podman, an upgrade adds to `.env` the keys the new version needs, with secrets made as a fresh install makes them.
+It replaces `data/seed.yaml` when it is one the docker repository shipped, saves both files beside them first, and a rollback restores them.
+
+A 7.2 Runner in database mode moves to a socket mode on its upgrade, outbound or inbound, and stays the same runner in AnsibleForms.
+The installer reads its runner's name and `RTE_TOKEN` from the old container, asks the app's address and the mode, and shows the plan.
+It backs up the old files to `installer-backups`, writes the installer's Runner layout without `DB_*`, and starts the new RTE beside the old one.
+The new RTE signs in with the runner's own token: AnsibleForms moves the runner itself, without an approval, and the old one goes.
+If the new RTE does not connect, a rollback puts the old files back and starts the old container again.
+Without a token to read, you type the runner's token (masked) or join as a new runner with a join token and retire the old one.
 
 ## Contributing
 

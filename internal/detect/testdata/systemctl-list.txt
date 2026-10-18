@@ -1,0 +1,6 @@
+ansibleforms-rte.service                   enabled         enabled
+ansibleforms.service                       enabled         enabled
+ansibleforms-af.service                    enabled         enabled
+getty@.service                             enabled         enabled
+handmade-forms.service                     enabled         enabled
+sshd.service                               enabled         enabled

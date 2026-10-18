@@ -83,7 +83,55 @@ func reason(i detect.Install) string {
 	return i18n.T(key, "dir", i.Dir, "port", i.Port, "version", orStr(i.Version, i18n.T("detect.versionUnknown")))
 }
 
-// foundList is the text that lists the installations found, each one's reason under it.
+// foundLine is an installation found on one line: what and where, and why it cannot be
+// taken over after a colon when it cannot.
+//
+// Args:
+//
+//	i: the installation.
+//
+// Returns:
+//
+//	The line.
+func foundLine(i detect.Install) string {
+	// one found on a port only says "No engine" already
+	if i.Adoptable() || i.Problem == detect.Unmanaged {
+		return describe(i)
+	}
+	return describe(i) + ": " + i18n.T("detect.short_"+i.Problem)
+}
+
+// foundAdvice is what to do about the installations that cannot be taken over: the advice
+// of each reason (its lines after the first), each line once. One found on a port only has
+// none: the screen's own help already says a new installation could clash with it.
+//
+// Args:
+//
+//	found: the installations.
+//
+// Returns:
+//
+//	The lines, none when there is nothing to advise.
+func foundAdvice(found []detect.Install) []string {
+	var lines []string
+	seen := map[string]bool{}
+	for _, i := range found {
+		if i.Adoptable() || i.Problem == detect.Unmanaged {
+			continue
+		}
+		parts := strings.Split(reason(i), "\n")
+		for _, l := range parts[1:] {
+			if l = strings.TrimSpace(l); l != "" && !seen[l] {
+				seen[l] = true
+				lines = append(lines, l)
+			}
+		}
+	}
+	return lines
+}
+
+// foundList is the text that lists the installations found, one line each, then what to do
+// about those that cannot be taken over.
 //
 // Args:
 //
@@ -95,12 +143,11 @@ func reason(i detect.Install) string {
 func foundList(found []detect.Install) string {
 	var lines []string
 	for _, i := range found {
-		lines = append(lines, "• "+describe(i))
-		if r := reason(i); r != "" {
-			for _, l := range strings.Split(r, "\n") {
-				lines = append(lines, "  "+l)
-			}
-		}
+		lines = append(lines, "• "+foundLine(i))
+	}
+	if advice := foundAdvice(found); len(advice) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, advice...)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -153,8 +200,8 @@ func offerFound(ctx context.Context, f Flags, found []detect.Install, alongside 
 		var opts []ui.Option
 		def := "stop"
 		for n, i := range found {
+			// one that cannot be taken over is not an option : the list above says why
 			if !i.Adoptable() {
-				opts = append(opts, ui.Option{Label: i18n.T("detect.cannot", "what", describe(i)), Value: "no:" + strconv.Itoa(n), Disabled: true})
 				continue
 			}
 			if def == "stop" {
@@ -290,13 +337,15 @@ func statusFound(ctx context.Context, st *state.State) int {
 	ui.Heading(i18n.T("detect.unmanagedTitle"))
 	takeable := false
 	for _, i := range others {
-		ui.Line("• " + describe(i))
-		if r := reason(i); r != "" {
-			for _, l := range strings.Split(r, "\n") {
-				ui.Muted("  " + l)
-			}
-		} else {
+		ui.Line("• " + foundLine(i))
+		if i.Adoptable() {
 			takeable = true
+		}
+	}
+	if advice := foundAdvice(others); len(advice) > 0 {
+		ui.Blank()
+		for _, l := range advice {
+			ui.Muted(l)
 		}
 	}
 	if takeable && st == nil {

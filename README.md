@@ -58,6 +58,9 @@ The installer shows what it found and offers to take it over and upgrade it, or 
 An installation it cannot take over is listed with the reason and what to do by hand, and a second installation beside it needs your explicit confirmation.
 Only the app's and the RTE's images count: a MySQL container named after AnsibleForms is not an installation.
 
+On Docker or Podman, an upgrade adds to `.env` the keys the new version needs, with secrets made as a fresh install makes them.
+It replaces `data/seed.yaml` when it is one the docker repository shipped, saves both files beside them first, and a rollback restores them.
+
 ## Contributing
 
 Contributions are welcome. Start with these files:

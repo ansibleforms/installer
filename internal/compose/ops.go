@@ -96,21 +96,26 @@ func restore(ctx context.Context, st *state.State, dump string) error {
 
 // ─── upgrade ──────────────────────────────────────────────────────────────────
 
-// Undo is what a failed upgrade needs to go back: the version, compose file and dump before.
+// Undo is what a failed upgrade needs to go back: the version, compose file and dump before,
+// and the .env and seed before the new version's keys and seed were written ("" : unchanged).
 type Undo struct {
 	Version string
 	Compose string
 	Dump    string
+	Env     string
+	Seed    string
 }
 
 // Upgrade moves an installation to another version: a backup first (a controller), the new
-// compose file, the new images, then waits for it to answer at that version.
+// compose file, the keys its .env lacks and its seed (Prepare), the new images, then waits
+// for it to answer at that version.
 //
 // Args:
 //
 //	ctx: the context, to cancel.
 //	st: the installation (saved with the new version once it answers).
 //	to: the version to upgrade to.
+//	prep: what changes in the .env and the seed, from Prepare (nil : worked out here).
 //
 // Returns:
 //
@@ -119,7 +124,7 @@ type Undo struct {
 // Errors:
 //
 //	When a step fails.
-func Upgrade(ctx context.Context, st *state.State, to string) (*Undo, error) {
+func Upgrade(ctx context.Context, st *state.State, to string, prep *Prep) (*Undo, error) {
 	undo := &Undo{Version: st.Version}
 	composeFile := filepath.Join(st.Dir, "docker-compose.yml")
 	old, err := os.ReadFile(composeFile)
@@ -134,6 +139,14 @@ func Upgrade(ctx context.Context, st *state.State, to string) (*Undo, error) {
 			return undo, err
 		}
 	} else {
+		if prep == nil {
+			if prep, err = Prepare(ctx, st, to); err != nil {
+				return nil, err
+			}
+		}
+		if err := prep.Check(); err != nil {
+			return nil, err
+		}
 		dump, err := Backup(ctx, st)
 		if err != nil {
 			return nil, err
@@ -153,6 +166,9 @@ func Upgrade(ctx context.Context, st *state.State, to string) (*Undo, error) {
 			if err := ownData(ctx, system.Runtime(st.Runtime), filepath.Join(st.Dir, "data")); err != nil {
 				return undo, err
 			}
+		}
+		if err := applyPrep(st, prep, to, undo); err != nil {
+			return undo, err
 		}
 		if err := pinCompose(st.Dir, to, st.Name); err != nil {
 			return undo, err
@@ -188,8 +204,8 @@ func Upgrade(ctx context.Context, st *state.State, to string) (*Undo, error) {
 	return undo, st.Save()
 }
 
-// Rollback goes back to the version before a failed upgrade: its compose file, and for a
-// controller its database as the backup holds it (a new version may have changed the schema).
+// Rollback goes back to the version before a failed upgrade: its compose file, .env and seed,
+// and for a controller its database as the backup holds it (a new version may have changed the schema).
 //
 // Args:
 //
@@ -206,6 +222,9 @@ func Rollback(ctx context.Context, st *state.State, undo *Undo) error {
 		_ = runCompose(ctx, st, "stop", "app", "rte")
 	}
 	if err := os.WriteFile(filepath.Join(st.Dir, "docker-compose.yml"), []byte(undo.Compose), 0o644); err != nil {
+		return err
+	}
+	if err := restorePrep(st, undo); err != nil {
 		return err
 	}
 	if st.Role != RoleRunner && undo.Dump != "" {

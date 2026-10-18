@@ -287,7 +287,7 @@
   "detect.unattended": "AnsibleForms est déjà sur ce serveur et l'installateur ne le gère pas.\nLancez l'installateur sans --yes pour choisir quoi faire.\nS'il n'y en a qu'un, ansibleforms-installer upgrade --yes le prend en charge et le met à jour.",
   "detect.cannotAdopt": "AnsibleForms a été trouvé sur ce serveur, mais l'installateur ne peut pas le mettre à jour : voir la raison ci-dessus.",
   "detect.adoptReview": "L'installateur retiendra cette installation dans {file} :",
-  "detect.adoptCompose": "La mise à jour sauvegarde d'abord la base, docker-compose.yml et .env.\nElle remplace ensuite docker-compose.yml par celui du dépôt ansibleforms/docker.\nLe .env et le dossier de données restent tels quels.",
+  "detect.adoptCompose": "La mise à jour sauvegarde d'abord la base, docker-compose.yml et .env.\nElle remplace ensuite docker-compose.yml par celui du dépôt ansibleforms/docker.\nLe .env garde toutes ses valeurs ; les clés dont la nouvelle version a besoin sont ajoutées. Le dossier de données est conservé.",
   "detect.adoptRunner": "La mise à jour réécrit docker-compose.yml pour la nouvelle image du RTE.\nLe .env et le dossier de données restent tels quels.",
   "detect.adoptKube": "Les valeurs actuelles de la release sont enregistrées à côté d'installer.json.\nLes mises à jour les appliquent à nouveau, avec le chart de la nouvelle version.",
   "detect.adoptNative": "La mise à jour place la nouvelle release dans releases/ et déplace le lien current.\nLes réglages et le dossier de données restent tels quels.",
@@ -306,5 +306,11 @@
   "detect.why_unknownVersion": "Sa version n'a pas pu être lue.\nDémarrez-le pour qu'il réponde sur son port, puis relancez l'installateur.",
   "detect.why_unmanaged": "AnsibleForms {version} répond sur le port {port}, mais aucun moteur ne le gère (lancé depuis les sources ou à la main).\nL'installateur ne peut pas le mettre à jour. Une nouvelle installation pourrait entrer en conflit avec ses ports ou sa base.",
   "detect.why_unmanagedRunner": "Un RTE AnsibleForms répond sur le port {port}, mais aucun moteur ne le gère (lancé depuis les sources ou à la main).\nL'installateur ne peut pas le mettre à jour. Une nouvelle installation pourrait entrer en conflit avec son port.",
-  "kube.adoptValues": "Enregistrement des valeurs actuelles de {release} dans {file}"
+  "kube.adoptValues": "Enregistrement des valeurs actuelles de {release} dans {file}",
+  "compose.envAdded": "Le .env de la nouvelle version ajoute : {keys}.\nLes valeurs existantes sont conservées, les nouveaux secrets sont générés et l'ancien .env est sauvegardé à côté.",
+  "compose.envBlocked": "Il manque au .env des réglages de base de données dont la nouvelle version a besoin : {keys}.\nIls ne peuvent pas être inventés pour une base existante. Ajoutez-les à la main (voir la section Database du README d'ansibleforms/docker), puis relancez la mise à jour. Rien n'a été modifié.",
+  "compose.seedReplaced": "data/seed.yaml est remplacé par celui de la nouvelle version : l'app appelle maintenant son RTE local (inbound) avec un identifiant.\nL'ancien seed est sauvegardé à côté.",
+  "compose.seedCustom": "data/seed.yaml a été modifié à la main, il est donc conservé. Celui de la nouvelle version est enregistré sous {file}.\nFusionnez-les (le RTE local a maintenant besoin de rte_mode: inbound et d'un identifiant), sinon les playbooks risquent de ne pas tourner.",
+  "compose.envWriting": "Ajout au .env : {keys}",
+  "compose.seedWriting": "Remplacement de data/seed.yaml par celui de la nouvelle version"
 }

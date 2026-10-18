@@ -287,7 +287,7 @@
   "detect.unattended": "AnsibleForms jest już na tym serwerze, a instalator nim nie zarządza.\nUruchom instalator bez --yes, aby wybrać, co zrobić.\nGdy znaleziono tylko jeden, ansibleforms-installer upgrade --yes przejmuje go i aktualizuje.",
   "detect.cannotAdopt": "Na tym serwerze znaleziono AnsibleForms, ale instalator nie może go zaktualizować: powód jest powyżej.",
   "detect.adoptReview": "Instalator zapamięta tę instalację w {file}:",
-  "detect.adoptCompose": "Aktualizacja najpierw tworzy kopię bazy danych, docker-compose.yml i .env.\nNastępnie zastępuje docker-compose.yml plikiem z repozytorium ansibleforms/docker.\nPlik .env i folder danych pozostają bez zmian.",
+  "detect.adoptCompose": "Aktualizacja najpierw tworzy kopię bazy danych, docker-compose.yml i .env.\nNastępnie zastępuje docker-compose.yml plikiem z repozytorium ansibleforms/docker.\nPlik .env zachowuje każdą wartość; dodawane są klucze potrzebne nowej wersji. Folder danych zostaje.",
   "detect.adoptRunner": "Aktualizacja przepisuje docker-compose.yml dla nowego obrazu RTE.\nPlik .env i folder danych pozostają bez zmian.",
   "detect.adoptKube": "Bieżące wartości release są zapisywane obok installer.json.\nAktualizacje stosują je ponownie, z chartem nowej wersji.",
   "detect.adoptNative": "Aktualizacja umieszcza nowe wydanie w releases/ i przenosi link current.\nUstawienia i folder danych pozostają bez zmian.",
@@ -306,5 +306,11 @@
   "detect.why_unknownVersion": "Nie udało się odczytać jego wersji.\nUruchom go, aby odpowiadał na swoim porcie, i uruchom instalator ponownie.",
   "detect.why_unmanaged": "AnsibleForms {version} odpowiada na porcie {port}, ale żaden silnik nim nie zarządza (uruchomiony ze źródeł lub ręcznie).\nInstalator nie może go zaktualizować. Nowa instalacja mogłaby kolidować z jego portami lub bazą danych.",
   "detect.why_unmanagedRunner": "RTE AnsibleForms odpowiada na porcie {port}, ale żaden silnik nim nie zarządza (uruchomiony ze źródeł lub ręcznie).\nInstalator nie może go zaktualizować. Nowa instalacja mogłaby kolidować z jego portem.",
-  "kube.adoptValues": "Zapisywanie bieżących wartości {release} w {file}"
+  "kube.adoptValues": "Zapisywanie bieżących wartości {release} w {file}",
+  "compose.envAdded": "Plik .env nowej wersji dodaje: {keys}.\nIstniejące wartości zostają, nowe sekrety są generowane, a stary .env jest zapisywany obok.",
+  "compose.envBlocked": "W pliku .env brakuje ustawień bazy danych, których potrzebuje nowa wersja: {keys}.\nNie da się ich wymyślić dla istniejącej bazy. Dodaj je ręcznie (zobacz sekcję Database w README ansibleforms/docker) i zaktualizuj ponownie. Nic nie zostało zmienione.",
+  "compose.seedReplaced": "data/seed.yaml jest zastępowany plikiem nowej wersji: aplikacja łączy się teraz sama ze swoim lokalnym RTE (inbound), z poświadczeniem.\nStary seed jest zapisywany obok.",
+  "compose.seedCustom": "data/seed.yaml był zmieniany ręcznie, więc zostaje. Plik nowej wersji zapisano jako {file}.\nPołącz je (lokalne RTE potrzebuje teraz rte_mode: inbound i poświadczenia), inaczej playbooki mogą nie działać.",
+  "compose.envWriting": "Dodawanie do .env: {keys}",
+  "compose.seedWriting": "Zastępowanie data/seed.yaml plikiem nowej wersji"
 }

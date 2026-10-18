@@ -104,12 +104,23 @@ func upgrade(ctx context.Context, f Flags) error {
 			return err
 		}
 	}
+	// a controller on compose : the keys the new version's .env adds and its seed, shown
+	// before anything changes ; database settings it lacks stop the upgrade here
+	var prep *compose.Prep
+	if st.Mode == state.Compose && st.Role != compose.RoleRunner {
+		if prep, err = compose.Prepare(ctx, st, to.String()); err != nil {
+			return err
+		}
+		if err := prep.Check(); err != nil {
+			return err
+		}
+	}
 	question := i18n.T("upgrade.confirm", "from", from.String(), "to", to.String())
 	def := true
 	if releases.HasBreaking(skipped) {
 		question, def = i18n.T("upgrade.confirmBreaking"), f.Yes
 	}
-	ui.Explain(i18n.T("upgrade.backupHelp"))
+	ui.Explain(strings.Join(append([]string{i18n.T("upgrade.backupHelp")}, prep.Describe(to.String())...), "\n\n"))
 	ok, err := ui.Confirm(question, i18n.T("upgrade.goOn"), i18n.T("app.cancel"), def)
 	if err != nil || !ok {
 		if err == nil || errors.Is(err, ui.ErrBack) {
@@ -134,7 +145,7 @@ func upgrade(ctx context.Context, f Flags) error {
 			return offerRollback(ctx, f, err, func() error { return native.Rollback(ctx, st, undo) })
 		}
 	default:
-		undo, err := compose.Upgrade(ctx, st, to.String())
+		undo, err := compose.Upgrade(ctx, st, to.String(), prep)
 		if err != nil {
 			if undo == nil {
 				return err

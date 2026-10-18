@@ -287,7 +287,7 @@
   "detect.unattended": "AnsibleForms staat al op deze server en de installer beheert het niet.\nStart de installer zonder --yes om te kiezen wat er moet gebeuren.\nAls er maar één wordt gevonden, neemt ansibleforms-installer upgrade --yes het over en upgradet het.",
   "detect.cannotAdopt": "AnsibleForms is op deze server gevonden, maar de installer kan het niet upgraden: zie de reden hierboven.",
   "detect.adoptReview": "De installer onthoudt deze installatie in {file}:",
-  "detect.adoptCompose": "De upgrade maakt eerst een back-up van de database, docker-compose.yml en .env.\nDaarna vervangt hij docker-compose.yml door die van de repository ansibleforms/docker.\nDe .env en de datamap blijven zoals ze zijn.",
+  "detect.adoptCompose": "De upgrade maakt eerst een back-up van de database, docker-compose.yml en .env.\nDaarna vervangt hij docker-compose.yml door die van de repository ansibleforms/docker.\nDe .env houdt elke waarde; de sleutels die de nieuwe versie nodig heeft worden toegevoegd. De datamap blijft.",
   "detect.adoptRunner": "De upgrade herschrijft docker-compose.yml voor de nieuwe RTE-image.\nDe .env en de datamap blijven zoals ze zijn.",
   "detect.adoptKube": "De huidige waarden van de release worden naast installer.json opgeslagen.\nDe upgrades passen ze opnieuw toe, met de chart van de nieuwe versie.",
   "detect.adoptNative": "De upgrade zet de nieuwe release in releases/ en verplaatst de link current.\nDe instellingen en de datamap blijven zoals ze zijn.",
@@ -306,5 +306,11 @@
   "detect.why_unknownVersion": "De versie kon niet worden gelezen.\nStart het zodat het op zijn poort antwoordt en voer de installer opnieuw uit.",
   "detect.why_unmanaged": "AnsibleForms {version} antwoordt op poort {port}, maar geen engine beheert het (vanuit de broncode of met de hand gestart).\nDe installer kan het niet upgraden. Een nieuwe installatie kan botsen met zijn poorten of zijn database.",
   "detect.why_unmanagedRunner": "Een AnsibleForms-RTE antwoordt op poort {port}, maar geen engine beheert het (vanuit de broncode of met de hand gestart).\nDe installer kan het niet upgraden. Een nieuwe installatie kan botsen met zijn poort.",
-  "kube.adoptValues": "De huidige waarden van {release} worden opgeslagen in {file}"
+  "kube.adoptValues": "De huidige waarden van {release} worden opgeslagen in {file}",
+  "compose.envAdded": "De .env van de nieuwe versie voegt toe: {keys}.\nBestaande waarden blijven, nieuwe geheimen worden aangemaakt en de oude .env wordt ernaast bewaard.",
+  "compose.envBlocked": "De .env mist database-instellingen die de nieuwe versie nodig heeft: {keys}.\nVoor een bestaande database kunnen ze niet worden verzonnen. Voeg ze met de hand toe (zie de sectie Database in de README van ansibleforms/docker) en upgrade opnieuw. Er is niets gewijzigd.",
+  "compose.seedReplaced": "data/seed.yaml wordt vervangen door die van de nieuwe versie: de app belt zijn lokale RTE nu zelf (inbound), met een credential.\nDe oude seed wordt ernaast bewaard.",
+  "compose.seedCustom": "data/seed.yaml is met de hand gewijzigd en blijft dus. Die van de nieuwe versie staat ernaast als {file}.\nVoeg ze samen (de lokale RTE heeft nu rte_mode: inbound en een credential nodig), anders draaien playbooks misschien niet.",
+  "compose.envWriting": "Toevoegen aan .env: {keys}",
+  "compose.seedWriting": "data/seed.yaml vervangen door die van de nieuwe versie"
 }

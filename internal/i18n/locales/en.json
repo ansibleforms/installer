@@ -287,7 +287,7 @@
   "detect.unattended": "AnsibleForms is already on this server and the installer does not manage it.\nRun the installer without --yes to choose what to do.\nWhen only one is found, ansibleforms-installer upgrade --yes takes it over and upgrades it.",
   "detect.cannotAdopt": "AnsibleForms was found on this server, but the installer cannot upgrade it: see why above.",
   "detect.adoptReview": "The installer will remember this installation in {file}:",
-  "detect.adoptCompose": "The upgrade backs up the database, docker-compose.yml and .env first.\nIt then replaces docker-compose.yml with the one of the ansibleforms/docker repository.\nThe .env and the data folder are kept as they are.",
+  "detect.adoptCompose": "The upgrade backs up the database, docker-compose.yml and .env first.\nIt then replaces docker-compose.yml with the one of the ansibleforms/docker repository.\nThe .env keeps every value; the keys the new version needs are added. The data folder is kept.",
   "detect.adoptRunner": "The upgrade rewrites docker-compose.yml for the new RTE image.\nThe .env and the data folder are kept as they are.",
   "detect.adoptKube": "The release's current values are saved next to installer.json.\nThe upgrades apply them again, with the chart of the new version.",
   "detect.adoptNative": "The upgrade puts the new release in releases/ and moves the current link.\nThe settings and the data folder are kept as they are.",
@@ -306,5 +306,11 @@
   "detect.why_unknownVersion": "Its version could not be read.\nStart it so it answers on its port, then run the installer again.",
   "detect.why_unmanaged": "AnsibleForms {version} answers on port {port}, but no engine manages it (run from source or by hand).\nThe installer cannot upgrade it. A new installation could clash with its ports or its database.",
   "detect.why_unmanagedRunner": "An AnsibleForms RTE answers on port {port}, but no engine manages it (run from source or by hand).\nThe installer cannot upgrade it. A new installation could clash with its port.",
-  "kube.adoptValues": "Saving the current values of {release} to {file}"
+  "kube.adoptValues": "Saving the current values of {release} to {file}",
+  "compose.envAdded": "The new version's .env adds: {keys}.\nThe existing values are kept, new secrets are generated, and the old .env is saved next to it.",
+  "compose.envBlocked": "The .env lacks database settings the new version needs: {keys}.\nThey cannot be made up for an existing database. Add them by hand (see the Database section of the ansibleforms/docker README), then upgrade again. Nothing was changed.",
+  "compose.seedReplaced": "data/seed.yaml is replaced by the new version's: the app now dials its local RTE (inbound) with a credential.\nThe old seed is saved next to it.",
+  "compose.seedCustom": "data/seed.yaml was changed by hand, so it is kept. The new version's is saved as {file}.\nMerge it (the local RTE now needs rte_mode: inbound and a credential), or playbooks may not run.",
+  "compose.envWriting": "Adding to .env: {keys}",
+  "compose.seedWriting": "Replacing data/seed.yaml with the new version's"
 }

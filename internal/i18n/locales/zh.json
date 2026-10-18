@@ -287,7 +287,7 @@
   "detect.unattended": "此服务器上已有 AnsibleForms，且安装程序未管理它。\n请不带 --yes 运行安装程序，以选择如何处理。\n若只找到一套，ansibleforms-installer upgrade --yes 会接管并升级它。",
   "detect.cannotAdopt": "在此服务器上找到了 AnsibleForms，但安装程序无法升级它：原因见上文。",
   "detect.adoptReview": "安装程序会把这套安装记录在 {file}：",
-  "detect.adoptCompose": "升级会先备份数据库、docker-compose.yml 和 .env。\n然后用 ansibleforms/docker 仓库的 docker-compose.yml 替换它。\n.env 和数据文件夹保持不变。",
+  "detect.adoptCompose": "升级会先备份数据库、docker-compose.yml 和 .env。\n然后用 ansibleforms/docker 仓库的 docker-compose.yml 替换它。\n.env 保留所有值，并添加新版本需要的键。数据文件夹保持不变。",
   "detect.adoptRunner": "升级会为新的 RTE 镜像重写 docker-compose.yml。\n.env 和数据文件夹保持不变。",
   "detect.adoptKube": "release 当前的值会保存在 installer.json 旁边。\n每次升级都会用新版本的 chart 重新应用它们。",
   "detect.adoptNative": "升级会把新版本放入 releases/ 并移动 current 链接。\n设置和数据文件夹保持不变。",
@@ -306,5 +306,11 @@
   "detect.why_unknownVersion": "无法读取它的版本。\n请启动它，使其在端口上响应，然后重新运行安装程序。",
   "detect.why_unmanaged": "AnsibleForms {version} 在端口 {port} 上响应，但没有引擎管理它（从源码或手动运行）。\n安装程序无法升级它。新的安装可能与它的端口或数据库冲突。",
   "detect.why_unmanagedRunner": "一个 AnsibleForms RTE 在端口 {port} 上响应，但没有引擎管理它（从源码或手动运行）。\n安装程序无法升级它。新的安装可能与它的端口冲突。",
-  "kube.adoptValues": "正在将 {release} 的当前值保存到 {file}"
+  "kube.adoptValues": "正在将 {release} 的当前值保存到 {file}",
+  "compose.envAdded": "新版本的 .env 新增：{keys}。\n现有的值保持不变，新的密钥会被生成，旧的 .env 会保存在旁边。",
+  "compose.envBlocked": ".env 缺少新版本需要的数据库设置：{keys}。\n无法为已有的数据库编造这些值。请手动添加（参见 ansibleforms/docker README 的 Database 一节），然后再次升级。未做任何更改。",
+  "compose.seedReplaced": "data/seed.yaml 会被新版本的替换：应用现在用凭据主动连接其本地 RTE（inbound）。\n旧的 seed 会保存在旁边。",
+  "compose.seedCustom": "data/seed.yaml 被手动修改过，因此保留不变。新版本的保存为 {file}。\n请合并两者（本地 RTE 现在需要 rte_mode: inbound 和一个凭据），否则 playbook 可能无法运行。",
+  "compose.envWriting": "正在向 .env 添加：{keys}",
+  "compose.seedWriting": "正在用新版本的替换 data/seed.yaml"
 }

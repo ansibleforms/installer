@@ -287,7 +287,7 @@
   "detect.unattended": "このサーバーには AnsibleForms がすでにあり、インストーラーは管理していません。\n--yes を付けずにインストーラーを実行し、どうするか選んでください。\n1 つだけ見つかった場合は、ansibleforms-installer upgrade --yes が引き継いでアップグレードします。",
   "detect.cannotAdopt": "このサーバーで AnsibleForms が見つかりましたが、インストーラーはアップグレードできません。理由は上を参照してください。",
   "detect.adoptReview": "インストーラーはこのインストールを {file} に記録します:",
-  "detect.adoptCompose": "アップグレードは先にデータベース、docker-compose.yml、.env をバックアップします。\nその後 docker-compose.yml を ansibleforms/docker リポジトリのものに置き換えます。\n.env とデータフォルダーはそのまま残ります。",
+  "detect.adoptCompose": "アップグレードは先にデータベース、docker-compose.yml、.env をバックアップします。\nその後 docker-compose.yml を ansibleforms/docker リポジトリのものに置き換えます。\n.env の値はすべて残し、新しいバージョンに必要なキーを追加します。データフォルダーはそのまま残ります。",
   "detect.adoptRunner": "アップグレードは新しい RTE イメージ用に docker-compose.yml を書き直します。\n.env とデータフォルダーはそのまま残ります。",
   "detect.adoptKube": "リリースの現在の値を installer.json の隣に保存します。\nアップグレードのたびに、新しいバージョンのチャートでそれを再適用します。",
   "detect.adoptNative": "アップグレードは新しいリリースを releases/ に置き、current リンクを移します。\n設定とデータフォルダーはそのまま残ります。",
@@ -306,5 +306,11 @@
   "detect.why_unknownVersion": "バージョンを読み取れませんでした。\nポートで応答するよう起動してから、インストーラーを再実行してください。",
   "detect.why_unmanaged": "AnsibleForms {version} がポート {port} で応答していますが、どのエンジンも管理していません (ソースから、または手動で起動)。\nインストーラーはアップグレードできません。新しいインストールはそのポートやデータベースと衝突するおそれがあります。",
   "detect.why_unmanagedRunner": "AnsibleForms の RTE がポート {port} で応答していますが、どのエンジンも管理していません (ソースから、または手動で起動)。\nインストーラーはアップグレードできません。新しいインストールはそのポートと衝突するおそれがあります。",
-  "kube.adoptValues": "{release} の現在の値を {file} に保存しています"
+  "kube.adoptValues": "{release} の現在の値を {file} に保存しています",
+  "compose.envAdded": "新しいバージョンの .env で追加されるキー: {keys}。\n既存の値はそのまま残し、新しいシークレットを生成します。元の .env は隣に保存します。",
+  "compose.envBlocked": ".env に新しいバージョンが必要とするデータベース設定がありません: {keys}。\n既存のデータベースに合わせて作ることはできません。手動で追加し (ansibleforms/docker の README の Database の節を参照)、もう一度アップグレードしてください。何も変更していません。",
+  "compose.seedReplaced": "data/seed.yaml を新しいバージョンのものに置き換えます。アプリはローカルの RTE に資格情報を使って自分から接続します (inbound)。\n元の seed は隣に保存します。",
+  "compose.seedCustom": "data/seed.yaml は手動で変更されているため、そのまま残します。新しいバージョンのものは {file} として保存します。\n両方をまとめてください (ローカルの RTE には rte_mode: inbound と資格情報が必要です)。そうしないとプレイブックが動かない場合があります。",
+  "compose.envWriting": ".env に追加しています: {keys}",
+  "compose.seedWriting": "data/seed.yaml を新しいバージョンのものに置き換えています"
 }

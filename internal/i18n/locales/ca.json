@@ -287,7 +287,7 @@
   "detect.unattended": "AnsibleForms ja és en aquest servidor i l'instal·lador no el gestiona.\nExecuteu l'instal·lador sense --yes per triar què fer.\nSi només se'n troba un, ansibleforms-installer upgrade --yes se'n fa càrrec i l'actualitza.",
   "detect.cannotAdopt": "S'ha trobat AnsibleForms en aquest servidor, però l'instal·lador no el pot actualitzar: vegeu el motiu a dalt.",
   "detect.adoptReview": "L'instal·lador recordarà aquesta instal·lació a {file}:",
-  "detect.adoptCompose": "L'actualització copia primer la base de dades, docker-compose.yml i .env.\nDesprés substitueix docker-compose.yml pel del repositori ansibleforms/docker.\nEl .env i la carpeta de dades es conserven tal com són.",
+  "detect.adoptCompose": "L'actualització copia primer la base de dades, docker-compose.yml i .env.\nDesprés substitueix docker-compose.yml pel del repositori ansibleforms/docker.\nEl .env conserva tots els valors; s'hi afegeixen les claus que la nova versió necessita. La carpeta de dades es conserva.",
   "detect.adoptRunner": "L'actualització reescriu docker-compose.yml per a la nova imatge de l'RTE.\nEl .env i la carpeta de dades es conserven tal com són.",
   "detect.adoptKube": "Els valors actuals de la release es desen al costat d'installer.json.\nLes actualitzacions els tornen a aplicar, amb el chart de la nova versió.",
   "detect.adoptNative": "L'actualització posa la nova release a releases/ i mou l'enllaç current.\nLa configuració i la carpeta de dades es conserven tal com són.",
@@ -306,5 +306,11 @@
   "detect.why_unknownVersion": "No s'ha pogut llegir la seva versió.\nInicieu-lo perquè respongui al seu port i torneu a executar l'instal·lador.",
   "detect.why_unmanaged": "AnsibleForms {version} respon al port {port}, però cap motor no el gestiona (executat des del codi o a mà).\nL'instal·lador no el pot actualitzar. Una nova instal·lació podria xocar amb els seus ports o la seva base de dades.",
   "detect.why_unmanagedRunner": "Un RTE d'AnsibleForms respon al port {port}, però cap motor no el gestiona (executat des del codi o a mà).\nL'instal·lador no el pot actualitzar. Una nova instal·lació podria xocar amb el seu port.",
-  "kube.adoptValues": "Desant els valors actuals de {release} a {file}"
+  "kube.adoptValues": "Desant els valors actuals de {release} a {file}",
+  "compose.envAdded": "El .env de la nova versió afegeix: {keys}.\nEls valors existents es conserven, es generen els secrets nous i el .env anterior es desa al costat.",
+  "compose.envBlocked": "Al .env li falten paràmetres de base de dades que la nova versió necessita: {keys}.\nNo es poden inventar per a una base de dades existent. Afegiu-los a mà (vegeu la secció Database del README d'ansibleforms/docker) i torneu a actualitzar. No s'ha canviat res.",
+  "compose.seedReplaced": "data/seed.yaml se substitueix pel de la nova versió: l'app ara crida el seu RTE local (inbound) amb una credencial.\nEl seed anterior es desa al costat.",
+  "compose.seedCustom": "data/seed.yaml es va canviar a mà, així que es conserva. El de la nova versió es desa com a {file}.\nCombineu-los (l'RTE local ara necessita rte_mode: inbound i una credencial), o els playbooks podrien no executar-se.",
+  "compose.envWriting": "Afegint al .env: {keys}",
+  "compose.seedWriting": "Substituint data/seed.yaml pel de la nova versió"
 }

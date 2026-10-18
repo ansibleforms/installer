@@ -752,6 +752,9 @@ func writeController(ctx context.Context, l layout, o compose.Options) (*compose
 		"# the token of the local RTE, which the config seed hands to its Runner's credential",
 		"RTE_TOKEN=" + rteToken,
 		"CONFIG_SEED_PATH=" + filepath.Join(l.data(), "seed.yaml"),
+		"# the database clients of this server, for the app's own backups and restores",
+		"MYSQLDUMP_COMMAND=" + clientCommand(mariadb("dump")),
+		"MYSQL_COMMAND=" + clientCommand(mariadb("client")),
 	}
 	if err := writeEnv(l, "app", "AnsibleForms, written by the AnsibleForms installer", app); err != nil {
 		return nil, err
@@ -877,6 +880,27 @@ func mariadb(tool string) string {
 		}
 	}
 	return names[0]
+}
+
+// clientCommand is how the app runs a MariaDB client for its backups (MYSQLDUMP_COMMAND,
+// MYSQL_COMMAND). The clients under the new names (mariadb-dump, mariadb, MariaDB 10.5 and
+// later) check the server's certificate by default from 11.4 on, which the database of this
+// server, reached over 127.0.0.1 without TLS, does not have: the check is turned off, as the
+// app's own default does. The old names (mysqldump, mysql) belong to older clients that do
+// not check it by default, and are run as they are.
+//
+// Args:
+//
+//	binary: the client found (mariadb, the new name tried first).
+//
+// Returns:
+//
+//	The command, without the connection's arguments (the app adds them).
+func clientCommand(binary string) string {
+	if strings.HasPrefix(binary, "mariadb") {
+		return binary + " --ssl-verify-server-cert=OFF"
+	}
+	return binary
 }
 
 // sqlString quotes a value for SQL (the passwords are letters and digits, this is a guard).

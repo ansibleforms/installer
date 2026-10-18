@@ -129,6 +129,16 @@ func stepName(key string) string { return i18n.T("step." + key) }
 //
 //	When a step fails or the person stops.
 func install(ctx context.Context, f Flags) error {
+	// the language first, before anything is said about an installation found : the wizard's
+	// own language step (and the upgrade's) is then answered already
+	if ui.Fullscreen && !ui.Unattended && f.Lang == "" {
+		ui.Steps(stepName("language"))
+		ui.Section(stepName("language"))
+		if err := chooseLanguage(func() { ui.Relabel(stepName("language")) }); err != nil {
+			return err
+		}
+		f.Lang = i18n.Current()
+	}
 	if st, err := state.Load(); err == nil {
 		ui.Warn(i18n.T("install.already", "version", st.Version, "mode", string(st.Mode)))
 		goOn, err := ui.Confirm(i18n.T("install.upgradeInstead"), i18n.T("app.yes"), i18n.T("app.no"), true)

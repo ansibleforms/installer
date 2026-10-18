@@ -515,19 +515,45 @@ func askApp(ctx context.Context, f Flags, p *plan) error {
 			p.appURL = j.AppURL
 		}
 	}
-	if p.appURL == "" || (f.AppURL == "" && (p.join == "" || !strings.HasPrefix(p.join, "afjoin2."))) {
-		if ui.Unattended && p.appURL == "" {
-			return errors.New(i18n.T("runner.needApp"))
-		}
-		if !ui.Unattended {
-			ui.Explain(i18n.T("runner.appUrlHelp"))
-			u, err := ui.Input(i18n.T("runner.appUrl"), p.appURL, false, validURL)
-			if err != nil {
-				return err
+	// asked when nothing gave it ; asked again, the reason under the field, when it did not do :
+	// Enter tries the address corrected, Esc goes back a step
+	ask := p.appURL == "" || (f.AppURL == "" && (p.join == "" || !strings.HasPrefix(p.join, "afjoin2.")))
+	for {
+		if ask {
+			if ui.Unattended && p.appURL == "" {
+				return errors.New(i18n.T("runner.needApp"))
 			}
-			p.appURL = u
+			if !ui.Unattended {
+				ui.Explain(i18n.T("runner.appUrlHelp"))
+				u, err := ui.Input(i18n.T("runner.appUrl"), p.appURL, false, validURL)
+				if err != nil {
+					return err
+				}
+				p.appURL = u
+			}
 		}
+		err := reachApp(ctx, f, p)
+		if err == nil || ui.Unattended || errors.Is(err, ui.ErrBack) || errors.Is(err, ui.ErrAborted) {
+			return err
+		}
+		ui.Problem(err.Error())
+		ask = true
 	}
+}
+
+// reachApp reaches the app at the address given : its certificate (trusted when the person
+// says so) and its version, which the runner runs.
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	f: the flags.
+//	p: the answers.
+//
+// Errors:
+//
+//	When the app cannot be reached, is too old, or its certificate is refused.
+func reachApp(ctx context.Context, f Flags, p *plan) error {
 	p.appURL = strings.TrimRight(p.appURL, "/")
 	ui.Step(i18n.T("runner.checkingApp", "url", p.appURL))
 	v, trusted, err := health.AppVersion(ctx, p.appURL)

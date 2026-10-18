@@ -71,7 +71,7 @@ func Backup(ctx context.Context, st *state.State) (string, error) {
 		return "", err
 	}
 	for _, f := range []string{"docker-compose.yml", ".env"} {
-		if err := copyFile(filepath.Join(st.Dir, f), filepath.Join(dir, fmt.Sprintf("%s.%s.%s", f, st.Version, stamp)), 0o600); err != nil {
+		if err := CopyFile(filepath.Join(st.Dir, f), filepath.Join(dir, fmt.Sprintf("%s.%s.%s", f, st.Version, stamp)), 0o600); err != nil {
 			return "", err
 		}
 	}

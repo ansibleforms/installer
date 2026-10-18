@@ -9,6 +9,7 @@ import (
 	"github.com/ansibleforms/installer/internal/compose"
 	"github.com/ansibleforms/installer/internal/i18n"
 	"github.com/ansibleforms/installer/internal/kube"
+	"github.com/ansibleforms/installer/internal/native"
 	"github.com/ansibleforms/installer/internal/releases"
 	"github.com/ansibleforms/installer/internal/state"
 	"github.com/ansibleforms/installer/internal/ui"
@@ -103,12 +104,21 @@ func upgrade(ctx context.Context, f Flags) error {
 	}
 	ui.Section(stepName("upgrade"))
 
-	if st.Mode == state.Kubernetes {
+	switch st.Mode {
+	case state.Kubernetes:
 		dump, err := kube.Upgrade(ctx, st, to.String())
 		if err != nil {
 			return offerRollback(ctx, f, err, func() error { return kube.Rollback(ctx, st, from.String(), dump) })
 		}
-	} else {
+	case state.Native:
+		undo, err := native.Upgrade(ctx, st, to.String())
+		if err != nil {
+			if undo == nil {
+				return err
+			}
+			return offerRollback(ctx, f, err, func() error { return native.Rollback(ctx, st, undo) })
+		}
+	default:
 		undo, err := compose.Upgrade(ctx, st, to.String())
 		if err != nil {
 			if undo == nil {
@@ -341,10 +351,15 @@ func status(ctx context.Context) error {
 	if st.Role == compose.RoleRunner {
 		role = i18n.T("install.roleRunnerShort")
 	}
-	ui.Line(i18n.T("status.summary", "role", role, "mode", string(st.Mode), "version", st.Version))
+	mode := map[state.Mode]string{state.Compose: "Docker Compose", state.Kubernetes: i18n.T("install.modeKubernetesShort"), state.Native: i18n.T("install.modeNativeShort")}[st.Mode]
+	ui.Line(i18n.T("status.summary", "role", role, "mode", mode, "version", st.Version))
 	if st.Mode == state.Kubernetes {
 		ui.Line(i18n.T("status.release", "release", st.Release, "namespace", st.Namespace))
 		return kube.Status(ctx, st)
+	}
+	if st.Mode == state.Native {
+		ui.Line(i18n.T("status.folder", "dir", st.Dir, "runtime", i18n.T("install.modeNativeShort")))
+		return native.Status(ctx, st)
 	}
 	ui.Line(i18n.T("status.folder", "dir", st.Dir, "runtime", st.Runtime))
 	return compose.Status(ctx, st)
@@ -365,9 +380,12 @@ func backup(ctx context.Context) error {
 		return err
 	}
 	var dump string
-	if st.Mode == state.Kubernetes {
+	switch st.Mode {
+	case state.Kubernetes:
 		dump, err = kube.Backup(ctx, st)
-	} else {
+	case state.Native:
+		dump, err = native.Backup(ctx, st)
+	default:
 		dump, err = compose.Backup(ctx, st)
 	}
 	if err != nil {
@@ -420,9 +438,12 @@ func uninstall(ctx context.Context, f Flags) error {
 			return err
 		}
 	}
-	if st.Mode == state.Kubernetes {
+	switch st.Mode {
+	case state.Kubernetes:
 		err = kube.Uninstall(ctx, st, purge)
-	} else {
+	case state.Native:
+		err = native.Uninstall(ctx, st, purge)
+	default:
 		err = compose.Uninstall(ctx, st, purge)
 	}
 	if err != nil {

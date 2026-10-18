@@ -18,6 +18,7 @@ import (
 	"github.com/ansibleforms/installer/internal/cli"
 	"github.com/ansibleforms/installer/internal/compose"
 	"github.com/ansibleforms/installer/internal/i18n"
+	"github.com/ansibleforms/installer/internal/native"
 	"github.com/ansibleforms/installer/internal/system"
 	"github.com/ansibleforms/installer/internal/ui"
 )
@@ -71,7 +72,7 @@ func main() {
 	flag.StringVar(&o.Lang, "lang", "", "language: ca de en es fr it ja nl pl pt zh")
 	flag.StringVar(&o.Version, "version", "", "AnsibleForms version to install or upgrade to (default: this installer's)")
 	flag.StringVar(&o.Role, "role", "", "controller or runner")
-	flag.StringVar(&o.Mode, "mode", "", "compose or kubernetes")
+	flag.StringVar(&o.Mode, "mode", "", "compose, kubernetes or native")
 	flag.StringVar(&o.Runtime, "runtime", "", "docker or podman (compose)")
 	flag.BoolVar(&o.InstallRuntime, "install-runtime", false, "install Docker or Podman when missing, without asking")
 	flag.StringVar(&o.Dir, "dir", "", "installation folder (compose)")
@@ -93,6 +94,7 @@ func main() {
 	flag.StringVar(&o.Values, "values", "", "extra Helm values file (kubernetes)")
 	flag.BoolVar(&o.Purge, "purge", false, "uninstall: also delete the data")
 	flag.StringVar(&compose.Source, "source", "", "a local copy of the ansibleforms/docker repository to install from (air-gapped)")
+	flag.StringVar(&native.Bundle, "bundle", "", "a release bundle (ansibleforms-<version>-linux-<arch>.tar.gz) to install natively from (air-gapped)")
 	flag.BoolVar(&o.Yes, "yes", false, "answer every question with its default (unattended)")
 	flag.BoolVar(&system.Verbose, "verbose", false, "show every command run")
 	flag.Usage = usage

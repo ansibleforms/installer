@@ -19,11 +19,14 @@ const (
 	Compose Mode = "compose"
 	// Kubernetes: the Helm chart, on a cluster.
 	Kubernetes Mode = "kubernetes"
+	// Native: directly on the server, no containers: Node.js, systemd services and, for a
+	// controller, MariaDB from the distribution's packages.
+	Native Mode = "native"
 )
 
 // State is one installation.
 type State struct {
-	// Mode is compose or kubernetes.
+	// Mode is compose, kubernetes or native.
 	Mode Mode `json:"mode"`
 	// Role is controller (the app, its database and a local RTE) or runner (an RTE alone,
 	// for a controller elsewhere).
@@ -34,8 +37,9 @@ type State struct {
 	InstalledAt time.Time `json:"installedAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 
-	// Compose : the runtime (docker, podman), the folder, the instance name (its containers'
-	// prefix), the web port and whether it serves HTTPS.
+	// Compose and native : the runtime (docker, podman ; none for native), the folder, the
+	// instance name (its containers' prefix, or its services' and system user's name), the
+	// web port and whether it serves HTTPS.
 	Runtime string `json:"runtime,omitempty"`
 	Dir     string `json:"dir,omitempty"`
 	Name    string `json:"name,omitempty"`

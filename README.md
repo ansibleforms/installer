@@ -17,7 +17,7 @@ A full-screen wizard asks one question at a time, with Esc to go back and a revi
 - **Eleven languages:** the app's languages, taken from the server's locale or chosen first
 - **Release notes first:** breaking changes and deprecations are shown before anything changes
 - **Controller or Runner:** the whole application, or a Runner that joins it with a join token
-- **Docker, Podman or Kubernetes:** Docker Compose on Docker or Podman, or the Helm chart on a cluster
+- **Docker, Podman, Kubernetes or native:** Compose, the Helm chart, or systemd services, no containers
 - **Container engine included:** installs Docker or Podman when neither is on the server, after asking
 - **Safe upgrades:** backs up the database first and rolls back if the new version does not respond
 - **Unattended mode:** every question has a flag, and `--yes` answers the rest with their defaults

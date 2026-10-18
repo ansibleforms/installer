@@ -13,6 +13,7 @@ import (
 	"github.com/ansibleforms/installer/internal/health"
 	"github.com/ansibleforms/installer/internal/i18n"
 	"github.com/ansibleforms/installer/internal/kube"
+	"github.com/ansibleforms/installer/internal/native"
 	"github.com/ansibleforms/installer/internal/releases"
 	"github.com/ansibleforms/installer/internal/state"
 	"github.com/ansibleforms/installer/internal/system"
@@ -155,6 +156,7 @@ func install(ctx context.Context, f Flags) error {
 	runner := func() bool { return p.role == compose.RoleRunner }
 	kubernetes := func() bool { return controller() && p.mode == string(state.Kubernetes) }
 	composeCtl := func() bool { return controller() && !kubernetes() }
+	nativeMode := func() bool { return p.mode == string(state.Native) }
 
 	var list []wstep
 	list = []wstep{
@@ -188,10 +190,21 @@ func install(ctx context.Context, f Flags) error {
 				ui.Answered(i18n.T("install.modeKubernetesShort"))
 				return nil
 			}
-			// Docker, Podman and, for a controller, Kubernetes in one list
+			if f.Mode == string(state.Native) {
+				if why := native.Supported(); why != "" {
+					return errors.New(i18n.T("native.cannot_" + why))
+				}
+				p.mode = f.Mode
+				ui.Answered(i18n.T("install.modeNativeShort"))
+				return nil
+			}
+			// Docker, Podman, Kubernetes and directly on this server, in one list
 			prev := string(p.runtime)
 			if kubernetes() {
 				prev = string(state.Kubernetes)
+			}
+			if nativeMode() {
+				prev = string(state.Native)
 			}
 			v, err := chooseEngine(ctx, f, p.tools, prev, f.Mode == "", runner())
 			if err != nil {
@@ -200,6 +213,11 @@ func install(ctx context.Context, f Flags) error {
 			if v == string(state.Kubernetes) {
 				p.mode = v
 				ui.Answered(i18n.T("install.modeKubernetesShort"))
+				return nil
+			}
+			if v == string(state.Native) {
+				p.mode = v
+				ui.Answered(i18n.T("install.modeNativeShort"))
 				return nil
 			}
 			p.mode = string(state.Compose)
@@ -217,7 +235,11 @@ func install(ctx context.Context, f Flags) error {
 				home, _ := os.UserHomeDir()
 				def = filepath.Join(home, filepath.Base(def))
 			}
-			ui.Explain(i18n.T("install.dirHelp"))
+			if nativeMode() {
+				ui.Explain(i18n.T("install.dirHelpNative"))
+			} else {
+				ui.Explain(i18n.T("install.dirHelp"))
+			}
 			d, err := textAgain(f.Dir, i18n.T("install.dir"), orStr(p.dir, def), notEmpty)
 			if err != nil {
 				return err
@@ -226,8 +248,15 @@ func install(ctx context.Context, f Flags) error {
 			return nil
 		}},
 		{label: "folder", skip: kubernetes, ask: func() error {
-			ui.Explain(i18n.T("install.nameHelp"))
-			n, err := textAgain(f.Name, i18n.T("install.name"), orStr(p.name, map[bool]string{true: "runner", false: "af"}[runner()]), validName)
+			def := map[bool]string{true: "runner", false: "af"}[runner()]
+			help, title := i18n.T("install.nameHelp"), i18n.T("install.name")
+			if nativeMode() {
+				// the system user and the services are named after it
+				def = map[bool]string{true: "ansibleforms-runner", false: "ansibleforms"}[runner()]
+				help, title = i18n.T("install.nameHelpNative"), i18n.T("install.nameNative")
+			}
+			ui.Explain(help)
+			n, err := textAgain(f.Name, title, orStr(p.name, def), validName)
 			p.name = n
 			if err == nil {
 				ui.Answered(p.dir + " · " + n)
@@ -454,10 +483,14 @@ func versionNotes(ctx context.Context, v releases.Version) error {
 //	One line per answer.
 func review(p *plan) []string {
 	row := func(k, v string) string { return ui.Row(i18n.T("review."+k), v, 15) }
+	engine := i18n.T("runtime." + string(p.runtime))
+	if p.mode == string(state.Native) {
+		engine = i18n.T("install.modeNativeShort")
+	}
 	out := []string{row("version", p.version.String())}
 	switch {
 	case p.role == compose.RoleRunner:
-		out = append(out, row("role", i18n.T("install.roleRunnerShort")), row("engine", i18n.T("runtime."+string(p.runtime))),
+		out = append(out, row("role", i18n.T("install.roleRunnerShort")), row("engine", engine),
 			row("folder", p.dir), row("name", p.name), row("app", p.appURL), row("mode", i18n.T("runner.mode_"+p.runnerMode)))
 		if p.runnerMode == "inbound" {
 			out = append(out, row("address", fmt.Sprintf("http://%s:%d", p.host, p.port)))
@@ -473,7 +506,7 @@ func review(p *plan) []string {
 		out = append(out, row("role", i18n.T("install.roleControllerShort")), row("engine", i18n.T("install.modeKubernetesShort")),
 			row("cluster", p.namespace+" / "+p.release), row("ingress", p.hostname), row("storage", orStr(p.storageClass, i18n.T("kube.default"))))
 	default:
-		out = append(out, row("role", i18n.T("install.roleControllerShort")), row("engine", i18n.T("runtime."+string(p.runtime))),
+		out = append(out, row("role", i18n.T("install.roleControllerShort")), row("engine", engine),
 			row("folder", p.dir), row("name", p.name), row("port", strconv.Itoa(p.port)), row("https", i18n.T("install.tls_"+p.tls)))
 	}
 	return out
@@ -566,7 +599,11 @@ func askApp(ctx context.Context, f Flags, p *plan) error {
 func doController(ctx context.Context, p *plan) error {
 	o := compose.Options{Role: compose.RoleController, Runtime: p.runtime, Version: p.version.String(), Dir: p.dir, Name: p.name,
 		Port: p.port, TLS: p.tls, CertFile: p.cert, KeyFile: p.key, AdminPassword: p.admin}
-	st, res, err := compose.Install(ctx, o)
+	install := compose.Install
+	if p.mode == string(state.Native) {
+		install = native.Install
+	}
+	st, res, err := install(ctx, o)
 	if err != nil {
 		return err
 	}
@@ -608,7 +645,11 @@ func doRunner(ctx context.Context, p *plan) error {
 		r.Address = fmt.Sprintf("http://%s:%d", p.host, p.port)
 	}
 	o := compose.Options{Role: compose.RoleRunner, Runtime: p.runtime, Version: p.version.String(), Dir: p.dir, Name: p.name, Port: p.port, Runner: r}
-	st, res, err := compose.Install(ctx, o)
+	install := compose.Install
+	if p.mode == string(state.Native) {
+		install = native.Install
+	}
+	st, res, err := install(ctx, o)
 	if err != nil {
 		return err
 	}
@@ -708,6 +749,16 @@ func chooseEngine(ctx context.Context, f Flags, tools system.Tools, prev string,
 		opts = append(opts, ui.Option{Label: i18n.T("runtime.toInstall", "runtime", name), Value: string(r), Hint: i18n.T("runtime." + string(r) + "InstallHint")})
 	}
 	kube := withKube && !runner && tools.Kubectl && tools.Helm && tools.Cluster
+	nativeOption := func() ui.Option {
+		hint := "install.modeNativeHint"
+		if runner {
+			hint = "install.modeNativeRunnerHint"
+		}
+		if why := native.Supported(); why != "" {
+			return ui.Option{Label: i18n.T("install.modeNative_" + why), Value: string(state.Native), Disabled: true}
+		}
+		return ui.Option{Label: i18n.T("install.modeNative"), Value: string(state.Native), Hint: i18n.T(hint)}
+	}
 	if withKube {
 		switch {
 		case runner:
@@ -739,9 +790,12 @@ func chooseEngine(ctx context.Context, f Flags, tools system.Tools, prev string,
 	if kube {
 		help += "\n" + i18n.T("install.runtimeHelpKube")
 	}
+	if withKube {
+		opts = append(opts, nativeOption())
+	}
 	ui.Explain(help)
 	v, err := ui.Select(i18n.T("install.runtime"), opts, orStr(prev, def))
-	if err != nil || v == string(state.Kubernetes) {
+	if err != nil || v == string(state.Kubernetes) || v == string(state.Native) {
 		return v, err
 	}
 	if tools.ComposeReady(system.Runtime(v)) {

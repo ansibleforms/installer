@@ -101,14 +101,13 @@ type plan struct {
 	role, mode string
 	runtime    system.Runtime
 
-	dir, name      string
-	port           int
-	tls, cert, key string
-	admin          string
-
-	how, join, appURL, runnerMode, host string
-	trust                               bool
-	appVersion                          string
+	dir, name                      string
+	port                           int
+	tls, cert, key                 string
+	admin                          string
+	join, appURL, runnerMode, host string
+	trust                          bool
+	appVersion                     string
 
 	namespace, release, hostname, ingressClass, storageClass string
 	kubeTLS                                                  bool
@@ -263,25 +262,7 @@ func install(ctx context.Context, f Flags) error {
 			}
 			return err
 		}},
-		// a runner : how it registers, its app, its mode
-		{label: "join", skip: func() bool { return !runner() || f.JoinToken != "" || f.AppURL != "" }, ask: func() error {
-			ui.Explain(i18n.T("runner.registerHelp"))
-			how, err := ui.Select(i18n.T("runner.register"), []ui.Option{
-				{Label: i18n.T("runner.registerJoin"), Value: "join", Hint: i18n.T("runner.registerJoinHint")},
-				{Label: i18n.T("runner.registerManual"), Value: "manual", Hint: i18n.T("runner.registerManualHint")},
-			}, orStr(p.how, "join"))
-			p.how = how
-			return err
-		}},
-		{label: "join", skip: func() bool { return !runner() || f.JoinToken != "" || p.how != "join" }, ask: func() error {
-			ui.Explain(i18n.T("runner.joinHelp"))
-			j, err := ui.Input(i18n.T("runner.join"), p.join, true, func(s string) error {
-				_, err := compose.ParseJoin(s)
-				return err
-			})
-			p.join = j
-			return err
-		}},
+		// a runner : its app (it asks to join, an admin approves it there), its mode
 		{label: "app", skip: func() bool { return !runner() }, ask: func() error {
 			return askApp(ctx, f, p)
 		}},
@@ -500,7 +481,7 @@ func review(p *plan) []string {
 		if p.join != "" {
 			out = append(out, row("register", i18n.T("runner.registerJoinShort")))
 		} else {
-			out = append(out, row("register", i18n.T("runner.registerManualShort")))
+			out = append(out, row("register", i18n.T("runner.registerApproveShort")))
 		}
 	case p.mode == string(state.Kubernetes):
 		out = append(out, row("role", i18n.T("install.roleControllerShort")), row("engine", i18n.T("install.modeKubernetesShort")),
@@ -664,15 +645,10 @@ func doRunner(ctx context.Context, p *plan) error {
 	if r.JoinToken != "" {
 		lines = append(lines, "", i18n.T("runner.doneRegistered"))
 	} else {
-		// by hand : what to add under Connections > Runners, the token in plain text this once
-		lines = append(lines, "", i18n.T("runner.doneManual"),
-			"  "+i18n.T("runner.doneManualName", "name", st.Name),
-			"  "+i18n.T("runner.doneManualMode", "mode", i18n.T("runner.mode_"+r.Mode)),
-			"  "+i18n.T("runner.doneManualToken", "token", res.Token))
-		if r.Mode == "inbound" {
-			lines = append(lines, "  "+i18n.T("runner.doneManualAddress", "url", res.URL))
-		}
-		lines = append(lines, i18n.T("runner.doneManualSecret"))
+		// it asked to join : an admin approves it under Connections > Runners, after checking
+		// the fingerprint of its token there is this one
+		lines = append(lines, "", i18n.T("runner.doneApprove"),
+			"", i18n.T("runner.doneFingerprint", "fingerprint", compose.Fingerprint(res.Token)))
 	}
 	lines = append(lines, "", i18n.T("done.folder", "dir", st.Dir))
 	ui.Summary(i18n.T("runner.done", "version", st.Version), lines)

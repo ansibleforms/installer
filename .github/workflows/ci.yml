@@ -5,7 +5,8 @@ name: CI
 # on amd64 and arm64. A Dependabot bump of a Go module or an action has to pass it before it
 # is merged.
 #
-# The job name is a required check in the main ruleset: renaming it breaks that rule.
+# The main ruleset requires one check, CI passed, which passes only when every job did: a job
+# added later is covered without changing the ruleset.
 
 on:
   pull_request:
@@ -49,4 +50,21 @@ jobs:
         run: |
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -o "/tmp/ansibleforms-installer_linux_$arch" .
+          done
+
+  # The one check the ruleset requires, so a job added later is covered without
+  # changing the ruleset. This passes only when every job did.
+  passed:
+    name: CI passed
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Job results: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = "success" ] || { echo "::error::A CI job ended with '$result'."; exit 1; }
           done

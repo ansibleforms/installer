@@ -3,9 +3,7 @@ package compose
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -436,46 +434,25 @@ func removeSystemd(ctx context.Context, st *state.State) {
 
 // ─── runners ──────────────────────────────────────────────────────────────────
 
-// joinPrefix starts what Connections > Runners > Join tokens shows for the installer : the app's
-// address and a join token, in one string (afjoin2.<base64url JSON {u, t}>).
-const joinPrefix = "afjoin2."
-
-// Join is what a runner gets from the app's join string.
-type Join struct {
-	// AppURL is the app's address.
-	AppURL string `json:"u"`
-	// Token is the join token (afj_...).
-	Token string `json:"t"`
-}
-
-// ParseJoin reads the join string Connections > Runners shows ; a bare join token (afj_...) is
-// taken too, the app's address then asked separately.
+// ParseJoin checks a join token, as Connections > Runners > Join tokens shows it (afj_...).
 //
 // Args:
 //
-//	s: the string pasted.
+//	s: the token pasted or given with --join.
 //
 // Returns:
 //
-//	What it holds ; AppURL empty for a bare token.
+//	The token, spaces around it trimmed.
 //
 // Errors:
 //
-//	When it is neither.
-func ParseJoin(s string) (Join, error) {
+//	When it is not a join token.
+func ParseJoin(s string) (string, error) {
 	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "afj_") {
-		return Join{Token: s}, nil
+	if !strings.HasPrefix(s, "afj_") || len(s) == len("afj_") {
+		return "", errors.New(i18n.T("join.invalid"))
 	}
-	var j Join
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(s, joinPrefix))
-	if err != nil || !strings.HasPrefix(s, joinPrefix) {
-		return j, errors.New(i18n.T("join.invalid"))
-	}
-	if err := json.Unmarshal(raw, &j); err != nil || !strings.HasPrefix(j.Token, "afj_") || j.AppURL == "" {
-		return j, errors.New(i18n.T("join.invalid"))
-	}
-	return j, nil
+	return s, nil
 }
 
 // Fingerprint is a token's fingerprint as AnsibleForms shows it on a runner waiting for

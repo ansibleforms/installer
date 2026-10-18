@@ -96,6 +96,7 @@
   "runner.doneRegistered": "S'ha registrat sol.\nApareix com a connectat a Connexions > Runners.",
   "runner.doneApprove": "Ha demanat unir-se a AnsibleForms.\nAproveu-lo a Connexions > Runners.\nComproveu que l'empremta d'allà és la de sota.",
   "runner.doneFingerprint": "Empremta: {fingerprint}",
+  "runner.doneCertFingerprint": "Empremta del certificat: {fingerprint}",
   "join.invalid": "Aquest no és un token d'unió vàlid.",
   "kube.namespace": "Namespace",
   "kube.release": "Nom de la release de Helm",

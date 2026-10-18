@@ -96,6 +96,7 @@
   "runner.doneRegistered": "ランナーは自身を登録しました。\n接続 > ランナー に接続済みとして表示されます。",
   "runner.doneApprove": "AnsibleForms への参加を求めました。\n接続 > ランナー で承認してください。\nそこでのフィンガープリントが下と同じか確認します。",
   "runner.doneFingerprint": "フィンガープリント: {fingerprint}",
+  "runner.doneCertFingerprint": "証明書のフィンガープリント: {fingerprint}",
   "join.invalid": "有効な参加トークンではありません。",
   "kube.namespace": "Namespace",
   "kube.release": "Helm リリース名",

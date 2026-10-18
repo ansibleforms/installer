@@ -96,6 +96,7 @@
   "runner.doneRegistered": "Hij heeft zichzelf geregistreerd.\nHij staat als verbonden onder Verbindingen > Runners.",
   "runner.doneApprove": "Hij vroeg om lid te worden van AnsibleForms.\nKeur hem goed onder Verbindingen > Runners.\nControleer dat zijn vingerafdruk daar deze is.",
   "runner.doneFingerprint": "Vingerafdruk: {fingerprint}",
+  "runner.doneCertFingerprint": "Vingerafdruk certificaat: {fingerprint}",
   "join.invalid": "Dit is geen geldig jointoken.",
   "kube.namespace": "Namespace",
   "kube.release": "Naam van de Helm-release",

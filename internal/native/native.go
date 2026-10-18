@@ -654,11 +654,24 @@ func writeData(ctx context.Context, l layout, version, role string, keep bool) e
 
 // rteEnv is what both roles' RTE runs with: its role, Node.js, Ansible and the collections of
 // the release, and the data's ansible.cfg, roles and collections as the containers mount them.
-func rteEnv(l layout) []string {
-	return []string{
+//
+// Args:
+//
+//	l: the installation.
+//	https: it serves HTTPS (an inbound Runner) with the certificate in data/certificates.
+//
+// Returns:
+//
+//	Its settings, one KEY=value per line.
+func rteEnv(l layout, https bool) []string {
+	tls := "HTTPS=0"
+	if https {
+		tls = "HTTPS=1"
+	}
+	env := []string{
 		"AF_ROLE=rte",
 		"NODE_ENV=production",
-		"HTTPS=0",
+		tls,
 		"LOG_LEVEL=info",
 		"LOG_CONSOLE_LEVEL=info",
 		"HOME=" + l.home(),
@@ -669,6 +682,13 @@ func rteEnv(l layout) []string {
 		// the libraries the ansibleforms_pip_install playbook installs into the data folder
 		"PYTHONPATH=" + filepath.Join(l.data(), "python", "lib"),
 	}
+	if https {
+		env = append(env,
+			"# its socket over TLS, with the self-signed certificate that the app pins",
+			"HTTPS_CERT="+filepath.Join(l.data(), "certificates", "cert.pem"),
+			"HTTPS_KEY="+filepath.Join(l.data(), "certificates", "key.pem"))
+	}
+	return env
 }
 
 // writeEnv writes a service's settings, readable by root and the system user only.
@@ -732,12 +752,16 @@ func writeController(ctx context.Context, l layout, o compose.Options) (*compose
 		"# the token of the local RTE, which the config seed hands to its Runner's credential",
 		"RTE_TOKEN=" + rteToken,
 		"CONFIG_SEED_PATH=" + filepath.Join(l.data(), "seed.yaml"),
+		"# the database clients of this server, for the app's own backups and restores",
+		"MYSQLDUMP_COMMAND=" + clientCommand(mariadb("dump")),
+		"MYSQL_COMMAND=" + clientCommand(mariadb("client")),
 	}
 	if err := writeEnv(l, "app", "AnsibleForms, written by the AnsibleForms installer", app); err != nil {
 		return nil, err
 	}
 	// the local RTE : the app dials it on this server, it holds no database credentials
-	rte := append(rteEnv(l), "RTE_MODE=inbound", "RTE_TOKEN="+rteToken, "RTE_FILES=local", "PORT="+strconv.Itoa(rtePort))
+	// it listens on this machine only : the app dials it at 127.0.0.1
+	rte := append(rteEnv(l, false), "RTE_MODE=inbound", "RTE_TOKEN="+rteToken, "RTE_FILES=local", "PORT="+strconv.Itoa(rtePort), "LISTEN_HOST=127.0.0.1")
 	if err := writeEnv(l, "rte", "the AnsibleForms RTE of this server, written by the AnsibleForms installer", rte); err != nil {
 		return nil, err
 	}
@@ -811,7 +835,8 @@ func writeRunner(l layout, o compose.Options) (*compose.Result, error) {
 	if token == "" {
 		token = compose.Secret(32)
 	}
-	lines := append(rteEnv(l),
+	inbound := r.Mode == "inbound"
+	lines := append(rteEnv(l, inbound),
 		"PORT="+strconv.Itoa(o.Port),
 		"# outbound : it dials the app ; inbound : the app dials it at RTE_URL",
 		"RTE_MODE="+r.Mode,
@@ -824,8 +849,21 @@ func writeRunner(l layout, o compose.Options) (*compose.Result, error) {
 	if r.JoinToken != "" {
 		lines = append(lines, "# the join token that approves it at once, presented once", "RTE_JOIN_TOKEN="+r.JoinToken)
 	}
-	if r.Mode == "inbound" {
-		lines = append(lines, "RTE_URL="+r.Address)
+	if !inbound {
+		// outbound, nothing dials it : its probes answer on this machine only, as the compose Runner's
+		lines = append(lines, "LISTEN_HOST=127.0.0.1")
+	}
+	res := &compose.Result{URL: r.Address, Token: token}
+	if inbound {
+		// its socket over TLS : a certificate of its own address, which the app pins when it
+		// asks to join (own gives it to the system user afterwards)
+		ui.Step(i18n.T("compose.selfSigned"))
+		fp, err := compose.RunnerCertificate(filepath.Join(l.data(), "certificates", "cert.pem"), filepath.Join(l.data(), "certificates", "key.pem"), r.Host)
+		if err != nil {
+			return nil, err
+		}
+		res.CertFingerprint = fp
+		lines = append(lines, "# where the app reaches it", "RTE_URL="+r.Address)
 	}
 	if r.TrustAppCert {
 		lines = append(lines, "# the app's certificate is self-signed : accepted as it is", "APP_TLS_VERIFY=0")
@@ -833,7 +871,7 @@ func writeRunner(l layout, o compose.Options) (*compose.Result, error) {
 	if err := writeEnv(l, "rte", "AnsibleForms Runner, written by the AnsibleForms installer", lines); err != nil {
 		return nil, err
 	}
-	return &compose.Result{URL: r.Address, Token: token}, nil
+	return res, nil
 }
 
 // ─── the database ─────────────────────────────────────────────────────────────
@@ -847,6 +885,27 @@ func mariadb(tool string) string {
 		}
 	}
 	return names[0]
+}
+
+// clientCommand is how the app runs a MariaDB client for its backups (MYSQLDUMP_COMMAND,
+// MYSQL_COMMAND). The clients under the new names (mariadb-dump, mariadb, MariaDB 10.5 and
+// later) check the server's certificate by default from 11.4 on, which the database of this
+// server, reached over 127.0.0.1 without TLS, does not have: the check is turned off, as the
+// app's own default does. The old names (mysqldump, mysql) belong to older clients that do
+// not check it by default, and are run as they are.
+//
+// Args:
+//
+//	binary: the client found (mariadb, the new name tried first).
+//
+// Returns:
+//
+//	The command, without the connection's arguments (the app adds them).
+func clientCommand(binary string) string {
+	if strings.HasPrefix(binary, "mariadb") {
+		return binary + " --ssl-verify-server-cert=OFF"
+	}
+	return binary
 }
 
 // sqlString quotes a value for SQL (the passwords are letters and digits, this is a guard).

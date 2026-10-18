@@ -51,6 +51,10 @@ func describe(i detect.Install) string {
 	if i.Role == detect.RoleRunner {
 		role = i18n.T("install.roleRunnerShort")
 	}
+	if i.Database != nil {
+		// a Runner of 7.2 that still holds the database settings
+		role += " (" + i18n.T("detect.databaseMode") + ")"
+	}
 	parts := []string{engine, role, orStr(i.Version, i18n.T("detect.versionUnknown")), i.Where()}
 	if !i.Running {
 		parts = append(parts, i18n.T("detect.stopped"))
@@ -211,6 +215,9 @@ func adopt(ctx context.Context, i detect.Install, ask bool) (*state.State, error
 	st := i.State()
 	row := func(k, v string) string { return ui.Row(i18n.T("review."+k), v, 15) }
 	lines := []string{row("version", st.Version), row("role", strings.Split(describe(i), " · ")[1])}
+	if i.Database != nil {
+		lines = append(lines, row("runner", i.Database.RunnerName))
+	}
 	switch st.Mode {
 	case state.Kubernetes:
 		lines = append(lines, row("engine", i18n.T("install.modeKubernetesShort")), row("cluster", st.Namespace+" / "+st.Release))
@@ -223,6 +230,8 @@ func adopt(ctx context.Context, i detect.Install, ask bool) (*state.State, error
 	switch {
 	case st.Mode == state.Compose && st.Role == compose.RoleController:
 		help += "\n\n" + i18n.T("detect.adoptCompose")
+	case st.Mode == state.Compose && st.DatabaseMode:
+		help += "\n\n" + i18n.T("detect.adoptDatabaseRunner")
 	case st.Mode == state.Compose:
 		help += "\n\n" + i18n.T("detect.adoptRunner")
 	case st.Mode == state.Kubernetes:

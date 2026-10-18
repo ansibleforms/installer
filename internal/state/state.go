@@ -49,6 +49,10 @@ type State struct {
 	// by hand from the docker repository and taken over later (its project is its folder's
 	// name, its containers af_db, af_app and af_rte). Empty: the instance name.
 	Project string `json:"project,omitempty"`
+	// DatabaseMode: a Runner of 7.2 taken over as it ran, in the deprecated database mode
+	// (its RTE holds the app's database settings). Its next upgrade moves it to a socket mode
+	// with the installer's Runner layout, keeping its runner's name and token, then clears it.
+	DatabaseMode bool `json:"databaseMode,omitempty"`
 
 	// Kubernetes : the namespace, the Helm release, the values file the installer wrote and
 	// the address the ingress serves.

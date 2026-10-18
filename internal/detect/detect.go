@@ -98,6 +98,11 @@ type Install struct {
 	Chart     string
 	Workloads []string
 
+	// Database: a Runner of 7.2 in the deprecated database mode (an RTE alone in its compose
+	// project, with the app's DB_* and no RTE_MODE), what its upgrade to a socket mode needs;
+	// nil for anything else.
+	Database *DatabaseRunner
+
 	// Problem is why the installer cannot take it over, one of the codes above; "" : it can.
 	Problem string
 
@@ -164,6 +169,8 @@ func (i Install) State() *state.State {
 		if i.Project != i.Name {
 			st.Project = i.Project
 		}
+		// its next upgrade moves it to a socket mode, even when it is interrupted after this
+		st.DatabaseMode = i.Database != nil
 	}
 	return st
 }

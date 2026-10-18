@@ -52,6 +52,9 @@ type Options struct {
 
 	// Runner is what a runner needs: the app, its mode and how it registers.
 	Runner RunnerOptions
+	// KeepData leaves the data files the folder has already as they are (a Runner of 7.2
+	// moved to the installer's layout keeps its ansible.cfg, roles and collections).
+	KeepData bool
 }
 
 // RunnerOptions are a runner's answers.
@@ -71,6 +74,9 @@ type RunnerOptions struct {
 	TrustAppCert bool
 	// Token is the runner's own RTE_TOKEN, generated (shown for a registration by hand).
 	Token string
+	// RteName is its runner's name under Connections > Runners (RTE_NAME) when it is not the
+	// instance's name: the runner a 7.2 RTE registered itself as, kept on its upgrade.
+	RteName string
 }
 
 // Result is what the installation tells at the end.
@@ -471,7 +477,7 @@ func writeRunner(ctx context.Context, o Options) (*Result, error) {
 		}
 		return false
 	}
-	if _, _, err := Fetch(ctx, o.Version, o.Dir, only, false); err != nil {
+	if _, _, err := Fetch(ctx, o.Version, o.Dir, only, o.KeepData); err != nil {
 		return nil, err
 	}
 	content := strings.NewReplacer("{{IMAGE}}", RteImage(o.Version), "{{NAME}}", o.Name).Replace(runnerCompose)
@@ -497,7 +503,7 @@ func writeRunner(ctx context.Context, o Options) (*Result, error) {
 		"# the app's address",
 		"APP_URL=" + r.AppURL,
 		"# its runner's name under Connections > Runners",
-		"RTE_NAME=" + o.Name,
+		"RTE_NAME=" + orDefault(r.RteName, o.Name),
 		"# the token the app and this RTE share (its runner's RTE credential holds the same)",
 		"RTE_TOKEN=" + token,
 		"RTE_LOCAL_PORT=" + bind,

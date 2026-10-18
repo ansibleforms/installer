@@ -68,7 +68,9 @@ func upgrade(ctx context.Context, f Flags) error {
 	if err != nil {
 		return err
 	}
-	if to.Compare(from) == 0 {
+	// a Runner of 7.2 in database mode moves to a socket mode even at the same version (an
+	// image of the floating tag 7 may be newer than its version says)
+	if to.Compare(from) == 0 && !migrating(st) {
 		ui.Done(i18n.T("upgrade.upToDate", "version", from.String()))
 		return nil
 	}
@@ -103,6 +105,16 @@ func upgrade(ctx context.Context, f Flags) error {
 		if err := ui.Document(i18n.T("upgrade.notesTitle", "count", len(skipped)), func() { showNotes(skipped) }); err != nil && !errors.Is(err, ui.ErrBack) {
 			return err
 		}
+	}
+	// a Runner of 7.2 in database mode : its runner, its app and its mode asked and reviewed,
+	// then moved to the installer's Runner layout (migrate.go)
+	if migrating(st) {
+		m, target, err := askMigration(ctx, f, st, from, to)
+		if err != nil {
+			return err
+		}
+		ui.Section(stepName("upgrade"))
+		return upgradeMigration(ctx, st, m, from, target)
 	}
 	// a controller on compose : the keys the new version's .env adds and its seed, shown
 	// before anything changes ; database settings it lacks stop the upgrade here

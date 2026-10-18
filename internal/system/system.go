@@ -100,6 +100,36 @@ func Output(ctx context.Context, dir, name string, args ...string) (string, erro
 	return strings.TrimSpace(out.String()), nil
 }
 
+// Combined runs a command and returns what it printed on its standard output and its error
+// output together, nothing shown (a container's log, which a program writes to both).
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	dir: the working directory ("" for the current one).
+//	name: the program.
+//	args: its arguments.
+//
+// Returns:
+//
+//	Both outputs, interleaved as written.
+//
+// Errors:
+//
+//	When it fails.
+func Combined(ctx context.Context, dir, name string, args ...string) (string, error) {
+	if Verbose {
+		fmt.Fprintf(os.Stderr, "  $ %s %s\n", name, strings.Join(args, " "))
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+	}
+	return string(out), nil
+}
+
 // ToFile runs a command with its standard output written to a file (a database dump).
 //
 // Args:

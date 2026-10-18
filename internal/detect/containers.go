@@ -16,9 +16,12 @@ type container struct {
 	ID     string `json:"Id"`
 	Name   string `json:"Name"`
 	Config struct {
-		Image  string            `json:"Image"`
-		Labels map[string]string `json:"Labels"`
-		Env    []string          `json:"Env"`
+		// Hostname is the container's host name (its short id unless compose set one): a
+		// database-mode RTE without RTE_URL registered itself as rte-<hostname>-<PORT>
+		Hostname string            `json:"Hostname"`
+		Image    string            `json:"Image"`
+		Labels   map[string]string `json:"Labels"`
+		Env      []string          `json:"Env"`
 	} `json:"Config"`
 	State struct {
 		Status string `json:"Status"`
@@ -212,6 +215,15 @@ func project(ctx context.Context, env Env, engine string, group []container) (In
 			i.Version = fullVersion(a.Version)
 		}
 	}
+	// a Runner of 7.2 in database mode : what its move to a socket mode needs. Its image is
+	// usually at the floating tag 7, and an RTE tells its version only with its token : a
+	// database-mode RTE is one of 7.2 or before, upgraded as one
+	if i.Role == RoleRunner {
+		i.Database = databaseRunner(main, i.Dir)
+		if i.Database != nil && i.Version == "" {
+			i.Version = DatabaseModeVersion
+		}
+	}
 	i.Problem = composeProblem(i, main, services, envFile)
 	return i, true
 }
@@ -234,6 +246,17 @@ func project(ctx context.Context, env Env, engine string, group []container) (In
 func composeProblem(i Install, main *container, services map[string]string, envFile map[string]string) string {
 	if i.Project == "" || i.Dir == "" {
 		return NotCompose
+	}
+	// a Runner of 7.2 in database mode, set up by hand : its own compose file and .env (or none,
+	// its settings in the compose file), replaced by the installer's Runner layout on upgrade
+	if i.Database != nil {
+		if _, err := os.ReadFile(i.Database.ComposeFile); err != nil {
+			return NoComposeFile
+		}
+		if len(services) != 1 {
+			return RunnerLayout
+		}
+		return ""
 	}
 	composeFile := filepath.Join(i.Dir, "docker-compose.yml")
 	content, err := os.ReadFile(composeFile)

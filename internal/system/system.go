@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -300,12 +301,12 @@ func ReadOSRelease() OSRelease {
 	return r
 }
 
-// family tells which package manager a distribution uses.
+// Family tells which package manager a distribution uses.
 //
 // Returns:
 //
 //	"apt", "dnf", "zypper" or "" when unknown.
-func (r OSRelease) family() string {
+func (r OSRelease) Family() string {
 	ids := r.ID + " " + r.IDLike
 	switch {
 	case strings.Contains(ids, "debian") || strings.Contains(ids, "ubuntu"):
@@ -369,7 +370,7 @@ func InstallPodman(ctx context.Context) error {
 		return ErrNeedRoot
 	}
 	osr := ReadOSRelease()
-	switch osr.family() {
+	switch osr.Family() {
 	case "apt":
 		if err := Run(ctx, "", "apt-get", "update"); err != nil {
 			return err
@@ -391,4 +392,62 @@ func InstallPodman(ctx context.Context) error {
 		return Run(ctx, "", "zypper", "--non-interactive", "install", "podman", "podman-compose")
 	}
 	return fmt.Errorf("installing Podman on %s is not supported: install podman and podman-compose, then run the installer again", osr.Name)
+}
+
+// ─── packages and services ────────────────────────────────────────────────────
+
+// Packages names a set of packages in each package manager's own words.
+type Packages struct {
+	Apt, Dnf, Zypper []string
+}
+
+// InstallPackages installs packages from the distribution's repositories.
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	p: the packages, per package manager.
+//
+// Errors:
+//
+//	When not root, the distribution is not known, or the package manager fails.
+func InstallPackages(ctx context.Context, p Packages) error {
+	if !IsRoot() {
+		return ErrNeedRoot
+	}
+	osr := ReadOSRelease()
+	switch osr.Family() {
+	case "apt":
+		if len(p.Apt) == 0 {
+			return nil
+		}
+		if err := Run(ctx, "", "apt-get", "update"); err != nil {
+			return err
+		}
+		return Run(ctx, "", "env", append([]string{"DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "--no-install-recommends"}, p.Apt...)...)
+	case "dnf":
+		if len(p.Dnf) == 0 {
+			return nil
+		}
+		return Run(ctx, "", "dnf", append([]string{"install", "-y"}, p.Dnf...)...)
+	case "zypper":
+		if len(p.Zypper) == 0 {
+			return nil
+		}
+		return Run(ctx, "", "zypper", append([]string{"--non-interactive", "install", "--no-recommends"}, p.Zypper...)...)
+	}
+	return fmt.Errorf("installing packages on %s is not supported", osr.Name)
+}
+
+// Arch is the server's architecture as the downloads name it.
+//
+// Returns:
+//
+//	"amd64", "arm64", or "" for another one.
+func Arch() string {
+	switch runtime.GOARCH {
+	case "amd64", "arm64":
+		return runtime.GOARCH
+	}
+	return ""
 }

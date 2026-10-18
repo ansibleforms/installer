@@ -145,7 +145,7 @@ func runCompose(ctx context.Context, st *state.State, args ...string) error {
 //
 //	When a step fails; the folder is left for a look.
 func Install(ctx context.Context, o Options) (*state.State, *Result, error) {
-	if err := checkFolder(o.Dir); err != nil {
+	if err := CheckFolder(o.Dir); err != nil {
 		return nil, nil, err
 	}
 	if err := checkContainers(ctx, o.Runtime, o.Name, o.Role); err != nil {
@@ -205,7 +205,7 @@ func Install(ctx context.Context, o Options) (*state.State, *Result, error) {
 	return st, res, nil
 }
 
-// checkFolder refuses a folder that already holds something (another installation, files of
+// CheckFolder refuses a folder that already holds something (another installation, files of
 // the person's own).
 //
 // Args:
@@ -215,7 +215,7 @@ func Install(ctx context.Context, o Options) (*state.State, *Result, error) {
 // Errors:
 //
 //	When it exists and is not empty.
-func checkFolder(dir string) error {
+func CheckFolder(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -330,10 +330,10 @@ func writeController(ctx context.Context, o Options) (*Result, error) {
 			return nil, err
 		}
 	case "own":
-		if err := copyFile(o.CertFile, filepath.Join(o.Dir, "data/certificates/cert.pem"), 0o644); err != nil {
+		if err := CopyFile(o.CertFile, filepath.Join(o.Dir, "data/certificates/cert.pem"), 0o644); err != nil {
 			return nil, err
 		}
-		if err := copyFile(o.KeyFile, filepath.Join(o.Dir, "data/certificates/key.pem"), 0o600); err != nil {
+		if err := CopyFile(o.KeyFile, filepath.Join(o.Dir, "data/certificates/key.pem"), 0o600); err != nil {
 			return nil, err
 		}
 	}

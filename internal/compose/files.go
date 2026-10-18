@@ -210,7 +210,7 @@ func copyLocal(src, dir string, only func(string) bool, keep bool) (string, []st
 		if err != nil {
 			return err
 		}
-		if err := copyFile(path, target, info.Mode().Perm()); err != nil {
+		if err := CopyFile(path, target, info.Mode().Perm()); err != nil {
 			return err
 		}
 		written = append(written, rel)
@@ -476,7 +476,7 @@ func SelfSigned(certFile, keyFile string) error {
 	return os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDer}), 0o600)
 }
 
-// copyFile copies a file (the user's own certificate and key).
+// CopyFile copies a file (the user's own certificate and key).
 //
 // Args:
 //
@@ -487,7 +487,7 @@ func SelfSigned(certFile, keyFile string) error {
 // Errors:
 //
 //	When it cannot be read or written.
-func copyFile(src, dst string, mode os.FileMode) error {
+func CopyFile(src, dst string, mode os.FileMode) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return err

@@ -1,0 +1,24 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "kind": "Deployment",
+      "metadata": {"name": "ansibleforms-server", "namespace": "forms", "labels": {"app.kubernetes.io/instance": "ansibleforms", "app.kubernetes.io/managed-by": "Helm"}},
+      "spec": {"template": {"spec": {"containers": [{"name": "server", "image": "ghcr.io/ansibleforms/ansibleforms:7.2.0"}]}}},
+      "status": {"readyReplicas": 1}
+    },
+    {
+      "kind": "Deployment",
+      "metadata": {"name": "ansibleforms-mysql", "namespace": "forms", "labels": {"app.kubernetes.io/instance": "ansibleforms"}},
+      "spec": {"template": {"spec": {"containers": [{"name": "mysql", "image": "mysql:8.4.11"}]}}},
+      "status": {"readyReplicas": 1}
+    },
+    {
+      "kind": "StatefulSet",
+      "metadata": {"name": "forms-by-hand", "namespace": "lab", "labels": {}},
+      "spec": {"template": {"spec": {"containers": [{"name": "app", "image": "ghcr.io/ansibleforms/ansibleforms:7.1.4"}]}}},
+      "status": {"readyReplicas": 0}
+    }
+  ]
+}

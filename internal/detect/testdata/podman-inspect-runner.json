@@ -1,0 +1,18 @@
+[
+  {
+    "Id": "eee555",
+    "Name": "runner_rte",
+    "Config": {
+      "Image": "ghcr.io/ansibleforms/ansibleforms-rte-full:7.3.0",
+      "Labels": {
+        "com.docker.compose.project": "runner",
+        "com.docker.compose.project.working_dir": "{{DIR}}",
+        "com.docker.compose.service": "rte",
+        "io.podman.compose.project": "runner"
+      },
+      "Env": ["RTE_MODE=outbound", "APP_URL=https://forms.example.com"]
+    },
+    "State": {"Status": "exited"},
+    "NetworkSettings": {"Ports": {"8000/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8000"}]}}
+  }
+]

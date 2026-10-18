@@ -1,0 +1,39 @@
+Id=ansibleforms-rte.service
+Description=AnsibleForms RTE (ansibleforms)
+User=ansibleforms
+WorkingDirectory={{DIR}}/current/server
+EnvironmentFiles={{DIR}}/rte.env (ignore_errors=no)
+ExecStart={ path={{DIR}}/current/node/bin/node ; argv[]={{DIR}}/current/node/bin/node --preserve-symlinks index.js ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+ActiveState=active
+
+Id=ansibleforms.service
+Description=AnsibleForms (ansibleforms)
+User=ansibleforms
+WorkingDirectory={{DIR}}/current/server
+EnvironmentFiles={{DIR}}/app.env (ignore_errors=no)
+ExecStart={ path={{DIR}}/current/node/bin/node ; argv[]={{DIR}}/current/node/bin/node --preserve-symlinks index.js ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+ActiveState=active
+
+Id=ansibleforms-af.service
+Description=AnsibleForms (af)
+User=
+WorkingDirectory=/opt/af
+EnvironmentFiles=
+ExecStart={ path=/usr/bin/podman ; argv[]=/usr/bin/podman compose -p af up -d ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+ActiveState=active
+
+Id=handmade-forms.service
+Description=Ansible Forms by hand
+User=root
+WorkingDirectory={{HAND}}/server
+EnvironmentFiles=
+ExecStart={ path=/usr/bin/node ; argv[]=/usr/bin/node index.js ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+ActiveState=inactive
+
+Id=sshd.service
+Description=OpenSSH server daemon
+User=
+WorkingDirectory=
+EnvironmentFiles=
+ExecStart={ path=/usr/sbin/sshd ; argv[]=/usr/sbin/sshd -D ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+ActiveState=active

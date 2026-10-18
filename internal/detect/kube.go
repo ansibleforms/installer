@@ -1,0 +1,167 @@
+package detect
+
+import (
+	"context"
+	"encoding/json"
+	"regexp"
+	"sort"
+)
+
+// ─── Kubernetes ───────────────────────────────────────────────────────────────
+
+// release is a line of helm list -o json.
+type release struct {
+	Name       string `json:"name"`
+	Namespace  string `json:"namespace"`
+	Status     string `json:"status"`
+	Chart      string `json:"chart"`
+	AppVersion string `json:"app_version"`
+}
+
+// workloads is what kubectl get deploy,sts -o json says.
+type workloads struct {
+	Items []struct {
+		Kind     string `json:"kind"`
+		Metadata struct {
+			Name      string            `json:"name"`
+			Namespace string            `json:"namespace"`
+			Labels    map[string]string `json:"labels"`
+		} `json:"metadata"`
+		Spec struct {
+			Template struct {
+				Spec struct {
+					Containers []struct {
+						Image string `json:"image"`
+					} `json:"containers"`
+				} `json:"spec"`
+			} `json:"template"`
+		} `json:"spec"`
+		Status struct {
+			ReadyReplicas int `json:"readyReplicas"`
+		} `json:"status"`
+	} `json:"items"`
+}
+
+// chartRe cuts helm's chart column (ansibleforms-7.2.0) into its name and its version
+var chartRe = regexp.MustCompile(`^(.+)-v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$`)
+
+// kubernetes finds the Helm releases of the ansibleforms chart, and the Deployments and
+// StatefulSets that run the app's or an RTE's image without one, on the cluster kubectl and
+// helm reach (each asked with a short timeout: an unreachable cluster is skipped).
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	env: the commands.
+//
+// Returns:
+//
+//	One installation per release, and per workload no release explains.
+func kubernetes(ctx context.Context, env Env) []Install {
+	var found []Install
+	byRelease := map[string]int{} // namespace/release -> index in found
+	if env.Has("helm") {
+		if out, err := env.run(ctx, "helm", "list", "--all-namespaces", "--all", "--output", "json"); err == nil {
+			var list []release
+			if json.Unmarshal([]byte(out), &list) == nil {
+				for _, r := range list {
+					m := chartRe.FindStringSubmatch(r.Chart)
+					if m == nil || m[1] != "ansibleforms" {
+						continue
+					}
+					v := fullVersion(r.AppVersion)
+					if v == "" {
+						v = m[2]
+					}
+					i := Install{Engine: Kubernetes, Role: RoleController, Version: v, Running: r.Status == "deployed",
+						Namespace: r.Namespace, Release: r.Name, Chart: r.Chart, key: "helm:" + r.Namespace + "/" + r.Name}
+					byRelease[r.Namespace+"/"+r.Name] = len(found)
+					found = append(found, i)
+				}
+			}
+		}
+	}
+	if env.Has("kubectl") {
+		out, err := env.run(ctx, "kubectl", "get", "deployments,statefulsets", "--all-namespaces", "--output", "json", "--request-timeout=5s")
+		var w workloads
+		if err == nil && json.Unmarshal([]byte(out), &w) == nil {
+			for _, item := range w.Items {
+				kind, version := "", ""
+				for _, c := range item.Spec.Template.Spec.Containers {
+					k := imageKind(c.Image)
+					if k == "" {
+						continue
+					}
+					if kind != "app" {
+						kind = k
+					}
+					if _, tag := splitImage(c.Image); version == "" || k == "app" {
+						if v := fullVersion(tag); v != "" {
+							version = v
+						}
+					}
+				}
+				if kind == "" {
+					continue
+				}
+				md := item.Metadata
+				name := shortKind(item.Kind) + "/" + md.Name
+				instance := md.Labels["app.kubernetes.io/instance"]
+				if n, ok := byRelease[md.Namespace+"/"+instance]; ok && instance != "" {
+					found[n].Workloads = append(found[n].Workloads, name)
+					continue
+				}
+				// workloads of one instance (the same label) together, else each alone
+				group := instance
+				if group == "" {
+					group = md.Name
+				}
+				key := "kube:" + md.Namespace + "/" + group
+				if n, ok := byRelease[key]; ok {
+					found[n].Workloads = append(found[n].Workloads, name)
+					if kind == "app" {
+						found[n].Role = RoleController
+					}
+					if found[n].Version == "" {
+						found[n].Version = version
+					}
+					found[n].Running = found[n].Running || item.Status.ReadyReplicas > 0
+					continue
+				}
+				role := RoleController
+				if kind != "app" {
+					role = RoleRunner
+				}
+				byRelease[key] = len(found)
+				found = append(found, Install{Engine: Kubernetes, Role: role, Version: version, Running: item.Status.ReadyReplicas > 0,
+					Namespace: md.Namespace, Release: group, Workloads: []string{name}, Problem: NoHelm, key: key})
+			}
+		}
+	}
+	for n := range found {
+		sort.Strings(found[n].Workloads)
+		if found[n].Problem == "" && found[n].Version == "" {
+			found[n].Problem = UnknownVersion
+		}
+	}
+	return found
+}
+
+// shortKind is kubectl's short name of a kind.
+//
+// Args:
+//
+//	kind: Deployment or StatefulSet.
+//
+// Returns:
+//
+//	deploy, sts, or the kind as it is.
+func shortKind(kind string) string {
+	switch kind {
+	case "Deployment":
+		return "deploy"
+	case "StatefulSet":
+		return "sts"
+	}
+	return kind
+}

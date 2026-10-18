@@ -1,0 +1,60 @@
+[
+  {
+    "Id": "aaa111",
+    "Name": "/af_app",
+    "Config": {
+      "Image": "ghcr.io/ansibleforms/ansibleforms:7",
+      "Labels": {
+        "com.docker.compose.project": "docker",
+        "com.docker.compose.project.working_dir": "{{DIR}}",
+        "com.docker.compose.project.config_files": "{{DIR}}/docker-compose.yml",
+        "com.docker.compose.service": "app",
+        "org.opencontainers.image.version": "7.2.0"
+      },
+      "Env": ["HTTPS=1", "PORT=443"]
+    },
+    "State": {"Status": "running"},
+    "NetworkSettings": {"Ports": {"443/tcp": [{"HostIp": "0.0.0.0", "HostPort": "443"}]}}
+  },
+  {
+    "Id": "bbb222",
+    "Name": "/af_db",
+    "Config": {
+      "Image": "mysql:8.4.11",
+      "Labels": {
+        "com.docker.compose.project": "docker",
+        "com.docker.compose.project.working_dir": "{{DIR}}",
+        "com.docker.compose.service": "mysqldb"
+      },
+      "Env": []
+    },
+    "State": {"Status": "running"},
+    "NetworkSettings": {"Ports": {"3306/tcp": [{"HostIp": "0.0.0.0", "HostPort": "3306"}]}}
+  },
+  {
+    "Id": "ccc333",
+    "Name": "/af_rte",
+    "Config": {
+      "Image": "ghcr.io/ansibleforms/ansibleforms-rte-full:7",
+      "Labels": {
+        "com.docker.compose.project": "docker",
+        "com.docker.compose.project.working_dir": "{{DIR}}",
+        "com.docker.compose.service": "rte"
+      },
+      "Env": ["RTE_MODE=inbound"]
+    },
+    "State": {"Status": "running"},
+    "NetworkSettings": {"Ports": {}}
+  },
+  {
+    "Id": "ddd444",
+    "Name": "/ansibleforms-mysql",
+    "Config": {
+      "Image": "mysql:8.4.11",
+      "Labels": {},
+      "Env": ["MYSQL_DATABASE=AnsibleForms"]
+    },
+    "State": {"Status": "running"},
+    "NetworkSettings": {"Ports": {"3306/tcp": [{"HostIp": "0.0.0.0", "HostPort": "3307"}]}}
+  }
+]

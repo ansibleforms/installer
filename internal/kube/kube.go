@@ -191,6 +191,34 @@ func Install(ctx context.Context, o Options) (*state.State, error) {
 	return st, st.Save()
 }
 
+// Adopt takes over a release the installer did not install: the values it runs with now
+// (helm get values) become its values file, which the upgrades apply again.
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	st: the installation found (its ValuesFile set here; saved by the caller).
+//
+// Errors:
+//
+//	When helm cannot tell its values or the file cannot be written.
+func Adopt(ctx context.Context, st *state.State) error {
+	st.ValuesFile = valuesPath(st.Release)
+	ui.Step(i18n.T("kube.adoptValues", "release", st.Release, "file", st.ValuesFile))
+	out, err := system.Output(ctx, "", "helm", "get", "values", st.Release, "--namespace", st.Namespace, "--output", "yaml")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(out) == "" || strings.TrimSpace(out) == "null" {
+		out = "{}"
+	}
+	head := "# Chart values of the release as the installer found it; the upgrades apply them again.\n"
+	if err := os.MkdirAll(filepath.Dir(st.ValuesFile), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(st.ValuesFile, []byte(head+out+"\n"), 0o600)
+}
+
 // chartHint explains a chart version that is not there yet: the chart follows each app
 // release a little later (its own pull request and tests).
 //

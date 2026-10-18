@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ansibleforms/installer/internal/compose"
+	"github.com/ansibleforms/installer/internal/detect"
 	"github.com/ansibleforms/installer/internal/i18n"
 	"github.com/ansibleforms/installer/internal/kube"
 	"github.com/ansibleforms/installer/internal/native"
@@ -19,6 +20,7 @@ import (
 
 // upgrade shows what the versions skipped bring, asks to go on (and to confirm breaking
 // changes), backs up, upgrades, and offers a rollback when the new version does not answer.
+// Without installer.json, an AnsibleForms installed another way is found and taken over first.
 //
 // Args:
 //
@@ -30,6 +32,14 @@ import (
 //	When a step fails, the person stops, or the upgrade crosses a major version.
 func upgrade(ctx context.Context, f Flags) error {
 	st, err := state.Load()
+	var found []detect.Install
+	if errors.Is(err, state.ErrNone) {
+		// no installer.json : an AnsibleForms installed another way, taken over once the
+		// language is chosen
+		if found = findInstalls(ctx); len(found) > 0 {
+			err = nil
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -42,6 +52,11 @@ func upgrade(ctx context.Context, f Flags) error {
 		ui.Steps(langLabels()...)
 		ui.Section(stepName("language"))
 		if err := chooseLanguage(func() { ui.Relabel(langLabels()...) }); err != nil {
+			return err
+		}
+	}
+	if st == nil {
+		if st, err = offerFound(ctx, f, found, false); err != nil {
 			return err
 		}
 	}
@@ -333,7 +348,8 @@ func previous(entries []releases.Entry, v releases.Version) releases.Version {
 
 // ─── status, backup, join token, uninstall ────────────────────────────────────
 
-// status shows the installation and its containers or pods.
+// status shows the installation and its containers or pods, then any other AnsibleForms on
+// this server that the installer does not manage.
 //
 // Args:
 //
@@ -344,9 +360,35 @@ func previous(entries []releases.Entry, v releases.Version) releases.Version {
 //	When there is none or it cannot be read.
 func status(ctx context.Context) error {
 	st, err := state.Load()
+	if errors.Is(err, state.ErrNone) {
+		// nothing managed : what is on this server all the same
+		if statusFound(ctx, nil) == 0 {
+			return err
+		}
+		return nil
+	}
 	if err != nil {
 		return err
 	}
+	if err := statusManaged(ctx, st); err != nil {
+		return err
+	}
+	statusFound(ctx, st)
+	return nil
+}
+
+// statusManaged shows the installation the installer manages and its containers, pods or
+// services.
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	st: the installation.
+//
+// Errors:
+//
+//	When it cannot be read.
+func statusManaged(ctx context.Context, st *state.State) error {
 	role := i18n.T("install.roleControllerShort")
 	if st.Role == compose.RoleRunner {
 		role = i18n.T("install.roleRunnerShort")

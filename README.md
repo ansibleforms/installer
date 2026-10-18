@@ -20,6 +20,7 @@ A full-screen wizard asks one question at a time, with Esc to go back and a revi
 - **Docker, Podman, Kubernetes or native:** Compose, the Helm chart, or systemd services, no containers
 - **Container engine included:** installs Docker or Podman when neither is on the server, after asking
 - **Safe upgrades:** backs up the database first and rolls back if the new version does not respond
+- **Finds what is there:** takes over an AnsibleForms installed by hand, by Helm or natively
 - **Unattended mode:** every question has a flag, and `--yes` answers the rest with their defaults
 
 ## Versions
@@ -40,6 +41,22 @@ Run `ansibleforms-installer --help` for every flag; without a command, the insta
 | `release-notes` | show the release notes of a version |
 | `uninstall` | remove the installation, keeping its data unless asked otherwise |
 | `version` | print the installer's version |
+
+## Existing installations
+
+The installer remembers what it installed in `installer.json` (`/etc/ansibleforms` for root, else `~/.config/ansibleforms`).
+Without that file, `install`, `upgrade` and `status` look for an AnsibleForms already on the server, whatever installed it.
+
+| Found | How it is found | Taken over when |
+|---|---|---|
+| Docker or Podman | containers of the app or RTE image, grouped by compose project | the folder holds the docker repository's compose file and `.env` |
+| Kubernetes | Helm releases of the `ansibleforms` chart, Deployments and StatefulSets of its images | it is a release of the chart; its current values become its values file |
+| Native | systemd services that run AnsibleForms with Node.js | they follow the installer's layout: `releases/`, `current`, `app.env`, `rte.env` |
+| No engine | the app or an RTE answering on a usual port (443, 3000, 3001, 8000, 8001, 8010, 8443) | never: it runs from source or by hand |
+
+The installer shows what it found and offers to take it over and upgrade it, or to stop; it saves `installer.json` only once you confirm.
+An installation it cannot take over is listed with the reason and what to do by hand, and a second installation beside it needs your explicit confirmation.
+Only the app's and the RTE's images count: a MySQL container named after AnsibleForms is not an installation.
 
 ## Contributing
 

@@ -1,0 +1,120 @@
+services:
+  # MySql Server
+  mysqldb:
+    image: mysql:8.4.11
+    container_name: af_db
+    restart: unless-stopped
+    # load extra environment variables from file
+    env_file: ./.env
+    # Set manual environment variables
+    environment:
+      - MYSQL_ROOT_PASSWORD=$MYSQLDB_ROOT_PASSWORD
+      # The user AnsibleForms connects with: all rights on its own schema, none elsewhere.
+      # MySQL creates the schema (empty, so the app fills it) and the user on its first start.
+      - MYSQL_DATABASE=AnsibleForms
+      - MYSQL_USER=$MYSQLDB_USER
+      - MYSQL_PASSWORD=$MYSQLDB_PASSWORD
+    ports:
+      # Mount host port to docker internal port
+      - $MYSQLDB_LOCAL_PORT:$MYSQLDB_DOCKER_PORT
+    volumes:
+      # Map database location (to maintain persistency)
+      - ./data/mysql/db:/var/lib/mysql
+      # Map my.cnf file (to maintain persistency)
+      - ./data/mysql/my.cnf:/etc/mysql/my.cnf
+    # Healthy once MySql accepts TCP connections; the temporary server that runs during the
+    # first initialization only listens on its socket, so it does not count as ready.
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+  # AnsibleForms application
+  app:
+    # Only start once MySql is ready to accept connections
+    depends_on:
+      mysqldb:
+        condition: service_healthy
+    image: ghcr.io/ansibleforms/ansibleforms:7
+    container_name: af_app
+    restart: unless-stopped
+    ports:
+      # Mount host port to docker internal port
+      - $WEBAPP_LOCAL_PORT:$WEBAPP_DOCKER_PORT
+    # Load extra environment variables from file
+    env_file:
+      - ./.env
+    # Set environment variables
+    environment:
+      - DB_HOST=mysqldb
+      - DB_USER=$MYSQLDB_USER
+      - DB_PASSWORD=$MYSQLDB_PASSWORD
+      - DB_PORT=$MYSQLDB_DOCKER_PORT
+      - PORT=$WEBAPP_DOCKER_PORT
+      # The config seed registers the RTE below as the default runner (data/seed.yaml)
+      - CONFIG_SEED_PATH=/app/dist/persistent/seed.yaml
+    # Healthy once the app answers on its port, which it only opens after creating the schema
+    # and applying the seed. Declared here rather than left to the image's HEALTHCHECK: Podman
+    # ignores that for OCI images, so the app never turned healthy and the rte never started.
+    healthcheck:
+      test: ["CMD", "node", "./healthcheck.js"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    # allow interactive shell
+    stdin_open: true
+    # allow terminal
+    tty: true
+    volumes:
+      # Mount application folder to host folder (to maintain persistency)
+      - ./data:/app/dist/persistent                         # persistent app data
+      - ./data/ssh:$HOME_DIR/.ssh                           # persistent ssh keys
+      - ./data/git/.gitconfig:$HOME_DIR/.gitconfig          # custom git config
+      # Custom functions: the app reads these from its source folder, not from the persistent
+      # folder above, so they are mounted over the copies in the image.
+      - ./data/functions/custom.js:/app/dist/src/functions/custom.js                         # custom JavaScript functions (fnc.*)
+      - ./data/functions/jq.custom.definitions:/app/dist/src/functions/jq.custom.definitions # custom jq definitions
+      # - ./data/assets/images:/app/dist/views/img          # 6 custom images (login_background_%theme%.jpg and logo_%theme%.svg | 2 for each theme = light, dark and color)
+  # AnsibleForms RTE (runtime environment): runs the playbooks. AnsibleForms 7 runs none in
+  # the app itself, so this is where ansible, the Python libraries and the collections live.
+  # The app dials it on http://rte:8000 with RTE_TOKEN (RTE_MODE=inbound) and keeps one WebSocket
+  # open : the RTE holds no database credentials and is not published on the host.
+  rte:
+    image: ghcr.io/ansibleforms/ansibleforms-rte-full:7
+    container_name: af_rte
+    restart: unless-stopped
+    # Healthy once the RTE takes connections on its port (its socket needs the token)
+    healthcheck:
+      test: ["CMD", "node", "./healthcheck.js"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    # Only what the RTE needs : not the .env, which holds the database's passwords
+    environment:
+      # The app dials it (data/seed.yaml declares its runner, rte_mode inbound)
+      - NODE_ENV=production
+      - RTE_MODE=inbound
+      - RTE_TOKEN=$RTE_TOKEN
+      # Its files are the app's own (./data, mounted below) : nothing to send with each job
+      - RTE_FILES=local
+      - PORT=8000
+      # Only the app calls it, inside the compose network
+      - HTTPS=0
+      - LOG_LEVEL=$LOG_LEVEL
+      - LOG_CONSOLE_LEVEL=$LOG_CONSOLE_LEVEL
+      - LOG_TZ=${LOG_TZ:-UTC}
+      # The playbook output it stores per stream, in bytes (read by the RTE, not the app)
+      - PROCESS_MAX_BUFFER=${PROCESS_MAX_BUFFER:-52428800}
+      # The libraries the ansibleforms_pip_install playbook installs into the persistent folder
+      - PYTHONPATH=/app/dist/persistent/python/lib
+    volumes:
+      # The same folders as the app: playbooks, repositories, uploads and the SSH key
+      - ./data:/app/dist/persistent                         # persistent app data
+      - ./data/ssh:$HOME_DIR/.ssh                           # persistent ssh keys
+      - ./data/git/.gitconfig:$HOME_DIR/.gitconfig          # custom git config
+      - ./data/ansible/ansible.cfg:/etc/ansible/ansible.cfg # custom ansible.cfg
+      - ./data/ansible/roles:/etc/ansible/roles             # custom ansible roles
+      - ./data/ansible/collections:/etc/ansible/collections # custom ansible collections

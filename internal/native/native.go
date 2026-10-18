@@ -760,7 +760,8 @@ func writeController(ctx context.Context, l layout, o compose.Options) (*compose
 		return nil, err
 	}
 	// the local RTE : the app dials it on this server, it holds no database credentials
-	rte := append(rteEnv(l, false), "RTE_MODE=inbound", "RTE_TOKEN="+rteToken, "RTE_FILES=local", "PORT="+strconv.Itoa(rtePort))
+	// it listens on this machine only : the app dials it at 127.0.0.1
+	rte := append(rteEnv(l, false), "RTE_MODE=inbound", "RTE_TOKEN="+rteToken, "RTE_FILES=local", "PORT="+strconv.Itoa(rtePort), "LISTEN_HOST=127.0.0.1")
 	if err := writeEnv(l, "rte", "the AnsibleForms RTE of this server, written by the AnsibleForms installer", rte); err != nil {
 		return nil, err
 	}
@@ -847,6 +848,10 @@ func writeRunner(l layout, o compose.Options) (*compose.Result, error) {
 	)
 	if r.JoinToken != "" {
 		lines = append(lines, "# the join token that approves it at once, presented once", "RTE_JOIN_TOKEN="+r.JoinToken)
+	}
+	if !inbound {
+		// outbound, nothing dials it : its probes answer on this machine only, as the compose Runner's
+		lines = append(lines, "LISTEN_HOST=127.0.0.1")
 	}
 	res := &compose.Result{URL: r.Address, Token: token}
 	if inbound {

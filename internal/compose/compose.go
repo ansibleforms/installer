@@ -59,7 +59,7 @@ type RunnerOptions struct {
 	AppURL string
 	// Mode is outbound (the RTE dials the app) or inbound (the app dials the RTE).
 	Mode string
-	// JoinToken is the join token of Connections > Runners ; empty: registered by hand.
+	// JoinToken approves it at once (unattended installs) ; empty: it asks to join and waits for approval.
 	JoinToken string
 	// Address is where the app reaches an inbound runner (http://10.0.0.5:8000).
 	Address string
@@ -74,7 +74,7 @@ type Result struct {
 	URL           string
 	AdminUser     string
 	AdminPassword string
-	// a runner : its token, to add it by hand when it did not join with a join token
+	// a runner : its token, whose fingerprint the end shows for its approval
 	Token string
 }
 
@@ -477,7 +477,7 @@ func writeRunner(ctx context.Context, o Options) (*Result, error) {
 		"RTE_LOCAL_PORT=" + bind,
 	}
 	if r.JoinToken != "" {
-		lines = append(lines, "# the join token it registers with, once (Connections > Runners > Join tokens)", "RTE_JOIN_TOKEN="+r.JoinToken)
+		lines = append(lines, "# the join token that approves it at once, presented once", "RTE_JOIN_TOKEN="+r.JoinToken)
 	}
 	if r.Mode == "inbound" {
 		lines = append(lines, "# where the app reaches it", "RTE_URL="+r.Address)

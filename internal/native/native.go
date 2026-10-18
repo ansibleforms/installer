@@ -822,7 +822,7 @@ func writeRunner(l layout, o compose.Options) (*compose.Result, error) {
 		"RTE_TOKEN="+token,
 	)
 	if r.JoinToken != "" {
-		lines = append(lines, "# the join token it registers with, once (Connections > Runners > Join tokens)", "RTE_JOIN_TOKEN="+r.JoinToken)
+		lines = append(lines, "# the join token that approves it at once, presented once", "RTE_JOIN_TOKEN="+r.JoinToken)
 	}
 	if r.Mode == "inbound" {
 		lines = append(lines, "RTE_URL="+r.Address)

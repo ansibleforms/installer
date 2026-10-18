@@ -96,6 +96,7 @@
   "runner.doneRegistered": "Registou-se sozinho.\nAparece como ligado em Ligações > Runners.",
   "runner.doneApprove": "Pediu para aderir ao AnsibleForms.\nAprove-o em Ligações > Runners.\nConfirme que a impressão digital lá é a de baixo.",
   "runner.doneFingerprint": "Impressão digital: {fingerprint}",
+  "runner.doneCertFingerprint": "Impressão digital do certificado: {fingerprint}",
   "join.invalid": "Isto não é um token de adesão válido.",
   "kube.namespace": "Namespace",
   "kube.release": "Nome da release Helm",

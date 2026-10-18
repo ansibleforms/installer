@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -61,8 +62,11 @@ type RunnerOptions struct {
 	Mode string
 	// JoinToken approves it at once (unattended installs) ; empty: it asks to join and waits for approval.
 	JoinToken string
-	// Address is where the app reaches an inbound runner (http://10.0.0.5:8000).
+	// Address is where the app reaches an inbound runner (https://10.0.0.5:8000, InboundAddress).
 	Address string
+	// Host is an inbound runner's host name or IP address, as the app reaches it: the only name
+	// of the self-signed certificate its socket is served with.
+	Host string
 	// TrustAppCert accepts the app's self-signed certificate (APP_TLS_VERIFY=0).
 	TrustAppCert bool
 	// Token is the runner's own RTE_TOKEN, generated (shown for a registration by hand).
@@ -76,6 +80,9 @@ type Result struct {
 	AdminPassword string
 	// a runner : its token, whose fingerprint the end shows for its approval
 	Token string
+	// an inbound runner : the fingerprint of the certificate the app pins (CertFingerprint),
+	// shown at the end so the admin compares it in the approval dialog
+	CertFingerprint string
 }
 
 // ─── compose itself ───────────────────────────────────────────────────────────
@@ -382,12 +389,14 @@ func pinCompose(dir, version, name string) error {
 }
 
 // runnerCompose is a runner's compose file: the RTE alone, talking to the app over one
-// WebSocket (RTE_MODE in .env), with no database credentials.
+// WebSocket (RTE_MODE in .env), with no database credentials. An inbound runner serves HTTPS
+// (HTTPS=1 in .env) with ./data/certificates, where the app's image reads its certificate.
 const runnerCompose = `# AnsibleForms RTE runner, written by the AnsibleForms installer.
 # It runs the playbooks of the app at APP_URL (see .env) over one WebSocket : it dials the app
 # (RTE_MODE=outbound) or the app dials it (RTE_MODE=inbound). It holds no database credentials.
 # The job's files come from the app with each job ; ./data keeps what is not acked yet
 # (rte-spool), the files received (rte-files), and its ansible.cfg, roles and collections.
+# Inbound, it serves HTTPS (HTTPS=1 in .env) with the certificate in ./data/certificates.
 services:
   rte:
     image: {{IMAGE}}
@@ -399,7 +408,7 @@ services:
       - ./.env
     environment:
       - PORT=8000
-      - HTTPS=0
+      - HTTPS=${HTTPS:-0}
       - PYTHONPATH=/app/dist/persistent/python/lib
     healthcheck:
       test: ["CMD", "node", "./healthcheck.js"]
@@ -479,8 +488,22 @@ func writeRunner(ctx context.Context, o Options) (*Result, error) {
 	if r.JoinToken != "" {
 		lines = append(lines, "# the join token that approves it at once, presented once", "RTE_JOIN_TOKEN="+r.JoinToken)
 	}
+	res := &Result{URL: r.Address, Token: token}
 	if r.Mode == "inbound" {
-		lines = append(lines, "# where the app reaches it", "RTE_URL="+r.Address)
+		// its socket over TLS : a certificate of its own address, which the app pins when it
+		// asks to join (data/certificates is where the image reads it, HTTPS_CERT and HTTPS_KEY
+		// left to their defaults)
+		ui.Step(i18n.T("compose.selfSigned"))
+		fp, err := RunnerCertificate(filepath.Join(o.Dir, "data/certificates/cert.pem"), filepath.Join(o.Dir, "data/certificates/key.pem"), r.Host)
+		if err != nil {
+			return nil, err
+		}
+		res.CertFingerprint = fp
+		lines = append(lines,
+			"# where the app reaches it",
+			"RTE_URL="+r.Address,
+			"# its socket over TLS, with the self-signed certificate in data/certificates that the app pins",
+			"HTTPS=1")
 	}
 	if r.TrustAppCert {
 		lines = append(lines, "# the app's certificate is self-signed : accepted as it is", "APP_TLS_VERIFY=0")
@@ -488,7 +511,22 @@ func writeRunner(ctx context.Context, o Options) (*Result, error) {
 	if err := os.WriteFile(filepath.Join(o.Dir, ".env"), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		return nil, err
 	}
-	return &Result{URL: r.Address, Token: token}, nil
+	return res, nil
+}
+
+// InboundAddress is where the app reaches an inbound runner: always HTTPS, as the runner
+// serves its socket with a pinned self-signed certificate.
+//
+// Args:
+//
+//	host: the runner's host name or IP address (an IPv6 address bracketed or not).
+//	port: its port on the host.
+//
+// Returns:
+//
+//	Its address (https://10.0.0.5:8000, https://[2001:db8::5]:8000).
+func InboundAddress(host string, port int) string {
+	return "https://" + net.JoinHostPort(strings.Trim(strings.TrimSpace(host), "[]"), strconv.Itoa(port))
 }
 
 // orDefault gives a value, or a default for an empty one.

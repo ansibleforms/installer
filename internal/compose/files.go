@@ -9,8 +9,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -432,48 +434,131 @@ func Secret(n int) string {
 //
 //	When the files cannot be written.
 func SelfSigned(certFile, keyFile string) error {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return err
-	}
 	host, _ := os.Hostname()
 	if host == "" {
 		host = "localhost"
 	}
+	dns := []string{host, "localhost"}
+	ips := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
+	if addrs, err := net.InterfaceAddrs(); err == nil {
+		for _, a := range addrs {
+			if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() && !ipn.IP.IsLinkLocalUnicast() {
+				ips = append(ips, ipn.IP)
+			}
+		}
+	}
+	_, err := writeCertificate(certFile, keyFile, host, dns, ips)
+	return err
+}
+
+// RunnerCertificate writes the self-signed certificate an inbound Runner serves its socket
+// with: its address as AnsibleForms reaches it (a host name or an IP address) as its only
+// name, valid ten years. The Runner sends it when it asks to join and AnsibleForms pins it,
+// so the admin compares its fingerprint in the approval dialog with the one the end shows.
+//
+// Args:
+//
+//	certFile: the certificate's path (data/certificates/cert.pem).
+//	keyFile: the key's path (data/certificates/key.pem).
+//	host: the Runner's address from the wizard (runner.example.com, 10.0.0.5).
+//
+// Returns:
+//
+//	The certificate's fingerprint (CertFingerprint).
+//
+// Errors:
+//
+//	When the address is empty or the files cannot be written.
+func RunnerCertificate(certFile, keyFile, host string) (string, error) {
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if host == "" {
+		return "", errors.New("the Runner's address is empty")
+	}
+	var dns []string
+	var ips []net.IP
+	if ip := net.ParseIP(host); ip != nil {
+		ips = []net.IP{ip}
+	} else {
+		dns = []string{host}
+	}
+	der, err := writeCertificate(certFile, keyFile, host, dns, ips)
+	if err != nil {
+		return "", err
+	}
+	return CertFingerprint(der), nil
+}
+
+// CertFingerprint is a certificate's fingerprint as the installer shows it, in the style of
+// a token's (Fingerprint): the first 8 hexadecimal digits of the SHA-256 of its DER bytes,
+// as abcd-ef12.
+//
+// Args:
+//
+//	der: the certificate, DER encoded.
+//
+// Returns:
+//
+//	The fingerprint.
+func CertFingerprint(der []byte) string {
+	sum := sha256.Sum256(der)
+	h := hex.EncodeToString(sum[:])
+	return h[:4] + "-" + h[4:8]
+}
+
+// writeCertificate makes an ECDSA P-256 key and a self-signed server certificate for it,
+// valid ten years, and writes both as PEM: the certificate readable by all, the key by its
+// owner only.
+//
+// Args:
+//
+//	certFile: the certificate's path.
+//	keyFile: the key's path.
+//	cn: the certificate's common name.
+//	dns: its DNS names.
+//	ips: its IP addresses.
+//
+// Returns:
+//
+//	The certificate, DER encoded.
+//
+// Errors:
+//
+//	When the key or the certificate cannot be made, or the files cannot be written.
+func writeCertificate(certFile, keyFile, cn string, dns []string, ips []net.IP) ([]byte, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, err
+	}
 	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 120))
 	tpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: host, Organization: []string{"AnsibleForms"}},
+		Subject:               pkix.Name{CommonName: cn, Organization: []string{"AnsibleForms"}},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().AddDate(10, 0, 0),
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		DNSNames:              []string{host, "localhost"},
-		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
-	}
-	if addrs, err := net.InterfaceAddrs(); err == nil {
-		for _, a := range addrs {
-			if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() && !ipn.IP.IsLinkLocalUnicast() {
-				tpl.IPAddresses = append(tpl.IPAddresses, ipn.IP)
-			}
-		}
+		DNSNames:              dns,
+		IPAddresses:           ips,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	keyDer, err := x509.MarshalECPrivateKey(key)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(certFile), 0o755); err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
-		return err
+		return nil, err
 	}
-	return os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDer}), 0o600)
+	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDer}), 0o600); err != nil {
+		return nil, err
+	}
+	return der, nil
 }
 
 // CopyFile copies a file (the user's own certificate and key).

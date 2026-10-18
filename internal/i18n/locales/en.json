@@ -96,6 +96,7 @@
   "runner.doneRegistered": "It registered itself.\nIt appears as connected under Connections > Runners.",
   "runner.doneApprove": "It asked to join AnsibleForms.\nApprove it under Connections > Runners.\nCheck its fingerprint there is the one below.",
   "runner.doneFingerprint": "Fingerprint: {fingerprint}",
+  "runner.doneCertFingerprint": "Certificate fingerprint: {fingerprint}",
   "join.invalid": "This is not a valid join token.",
   "kube.namespace": "Namespace",
   "kube.release": "Helm release name",

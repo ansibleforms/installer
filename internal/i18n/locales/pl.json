@@ -96,6 +96,7 @@
   "runner.doneRegistered": "Zarejestrował się sam.\nJest widoczny jako połączony w Połączenia > Runnery.",
   "runner.doneApprove": "Poprosił o dołączenie do AnsibleForms.\nZatwierdź go w Połączenia > Runnery.\nSprawdź, czy jego odcisk jest tam taki jak poniżej.",
   "runner.doneFingerprint": "Odcisk: {fingerprint}",
+  "runner.doneCertFingerprint": "Odcisk certyfikatu: {fingerprint}",
   "join.invalid": "To nie jest prawidłowy token dołączenia.",
   "kube.namespace": "Namespace",
   "kube.release": "Nazwa wydania Helm",

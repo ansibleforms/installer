@@ -474,7 +474,7 @@ func review(p *plan) []string {
 		out = append(out, row("role", i18n.T("install.roleRunnerShort")), row("engine", engine),
 			row("folder", p.dir), row("name", p.name), row("app", p.appURL), row("mode", i18n.T("runner.mode_"+p.runnerMode)))
 		if p.runnerMode == "inbound" {
-			out = append(out, row("address", fmt.Sprintf("http://%s:%d", p.host, p.port)))
+			out = append(out, row("address", compose.InboundAddress(p.host, p.port)))
 		} else {
 			out = append(out, row("port", strconv.Itoa(p.port)))
 		}
@@ -649,7 +649,9 @@ func doRunner(ctx context.Context, p *plan) error {
 		r.JoinToken = j.Token
 	}
 	if r.Mode == "inbound" {
-		r.Address = fmt.Sprintf("http://%s:%d", p.host, p.port)
+		// served over TLS with a self-signed certificate of this address, which the app pins
+		r.Host = p.host
+		r.Address = compose.InboundAddress(p.host, p.port)
 	}
 	o := compose.Options{Role: compose.RoleRunner, Runtime: p.runtime, Version: p.version.String(), Dir: p.dir, Name: p.name, Port: p.port, Runner: r}
 	install := compose.Install
@@ -670,11 +672,18 @@ func doRunner(ctx context.Context, p *plan) error {
 	}
 	if r.JoinToken != "" {
 		lines = append(lines, "", i18n.T("runner.doneRegistered"))
+		if res.CertFingerprint != "" {
+			lines = append(lines, "", i18n.T("runner.doneCertFingerprint", "fingerprint", res.CertFingerprint))
+		}
 	} else {
 		// it asked to join : an admin approves it under Connections > Runners, after checking
-		// the fingerprint of its token there is this one
+		// the fingerprint of its token there is this one, and inbound the fingerprint of the
+		// certificate the app pins
 		lines = append(lines, "", i18n.T("runner.doneApprove"),
 			"", i18n.T("runner.doneFingerprint", "fingerprint", compose.Fingerprint(res.Token)))
+		if res.CertFingerprint != "" {
+			lines = append(lines, i18n.T("runner.doneCertFingerprint", "fingerprint", res.CertFingerprint))
+		}
 	}
 	lines = append(lines, "", i18n.T("done.folder", "dir", st.Dir))
 	ui.Summary(i18n.T("runner.done", "version", st.Version), lines)

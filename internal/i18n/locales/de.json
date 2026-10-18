@@ -96,6 +96,7 @@
   "runner.doneRegistered": "Er hat sich selbst registriert.\nEr erscheint als verbunden unter Verbindungen > Runner.",
   "runner.doneApprove": "Er möchte AnsibleForms beitreten.\nGeben Sie ihn unter Verbindungen > Runner frei.\nPrüfen Sie, dass sein Fingerabdruck dort dieser ist.",
   "runner.doneFingerprint": "Fingerabdruck: {fingerprint}",
+  "runner.doneCertFingerprint": "Zertifikat-Fingerabdruck: {fingerprint}",
   "join.invalid": "Das ist kein gültiges Beitritts-Token.",
   "kube.namespace": "Namespace",
   "kube.release": "Name des Helm-Release",

@@ -96,6 +96,7 @@
   "runner.doneRegistered": "它已自行注册。\n在 连接 > 运行器 中显示为已连接。",
   "runner.doneApprove": "它已请求加入 AnsibleForms。\n请在 连接 > 运行器 中批准它。\n确认那里的指纹与下方一致。",
   "runner.doneFingerprint": "指纹：{fingerprint}",
+  "runner.doneCertFingerprint": "证书指纹：{fingerprint}",
   "join.invalid": "这不是有效的加入令牌。",
   "kube.namespace": "Namespace",
   "kube.release": "Helm release 名称",

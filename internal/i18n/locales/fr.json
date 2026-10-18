@@ -96,6 +96,7 @@
   "runner.doneRegistered": "Il s'est enregistré lui-même.\nIl apparaît comme connecté dans Connexions > Runners.",
   "runner.doneApprove": "Il a demandé à rejoindre AnsibleForms.\nApprouvez-le dans Connexions > Runners.\nVérifiez que son empreinte y est celle ci-dessous.",
   "runner.doneFingerprint": "Empreinte : {fingerprint}",
+  "runner.doneCertFingerprint": "Empreinte du certificat : {fingerprint}",
   "join.invalid": "Ce n'est pas un jeton d'adhésion valide.",
   "kube.namespace": "Namespace",
   "kube.release": "Nom de la release Helm",

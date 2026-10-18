@@ -1,0 +1,36 @@
+[
+  {
+    "Id": "fff666",
+    "Name": "/af_rte",
+    "Config": {
+      "Hostname": "3f2a9c1b7d4e",
+      "Image": "ghcr.io/ansibleforms/ansibleforms-rte-full:7",
+      "Labels": {
+        "com.docker.compose.project": "rte",
+        "com.docker.compose.project.working_dir": "{{DIR}}",
+        "com.docker.compose.project.config_files": "{{DIR}}/docker-compose.yml",
+        "com.docker.compose.service": "rte"
+      },
+      "Env": [
+        "DB_HOST=forms-db.example.com",
+        "DB_USER=ansibleforms",
+        "DB_PASSWORD=AnsibleForms!123",
+        "DB_PORT=3306",
+        "ENCRYPTION_SECRET=0123456789abcdef0123456789abcdef",
+        "RTE_TOKEN=the-72-rte-token-0123456789",
+        "RTE_URL=http://rte72.example.com:8000",
+        "RTE_MAX_JOBS=4",
+        "HTTPS_PROXY=http://proxy.example.com:3128",
+        "NO_PROXY=forms.example.com",
+        "LOG_LEVEL=debug",
+        "PORT=8000",
+        "HTTPS=0",
+        "AF_ROLE=rte",
+        "NODE_ENV=production",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      ]
+    },
+    "State": {"Status": "running"},
+    "NetworkSettings": {"Ports": {"8000/tcp": [{"HostIp": "0.0.0.0", "HostPort": "8000"}]}}
+  }
+]

@@ -493,7 +493,7 @@ func review(p *plan) []string {
 	return out
 }
 
-// askApp reads the join string (or asks the app's address), then reaches the app : its
+// askApp checks the join token and asks the app's address, then reaches the app : its
 // certificate (trusted when the person says so) and its version, which the runner runs.
 //
 // Args:
@@ -507,17 +507,13 @@ func review(p *plan) []string {
 //	When the app cannot be reached, is too old, or the person stops.
 func askApp(ctx context.Context, f Flags, p *plan) error {
 	if p.join != "" {
-		j, err := compose.ParseJoin(p.join)
-		if err != nil {
+		if _, err := compose.ParseJoin(p.join); err != nil {
 			return err
 		}
-		if j.AppURL != "" {
-			p.appURL = j.AppURL
-		}
 	}
-	// asked when nothing gave it ; asked again, the reason under the field, when it did not do :
+	// asked when no flag gave it ; asked again, the reason under the field, when it did not do :
 	// Enter tries the address corrected, Esc goes back a step
-	ask := p.appURL == "" || (f.AppURL == "" && (p.join == "" || !strings.HasPrefix(p.join, "afjoin2.")))
+	ask := p.appURL == "" || f.AppURL == ""
 	for {
 		if ask {
 			if ui.Unattended && p.appURL == "" {
@@ -642,11 +638,11 @@ func doController(ctx context.Context, p *plan) error {
 func doRunner(ctx context.Context, p *plan) error {
 	r := compose.RunnerOptions{AppURL: p.appURL, Mode: orStr(p.runnerMode, "outbound"), TrustAppCert: p.trust, Token: compose.Secret(32)}
 	if p.join != "" {
-		j, err := compose.ParseJoin(p.join)
+		token, err := compose.ParseJoin(p.join)
 		if err != nil {
 			return err
 		}
-		r.JoinToken = j.Token
+		r.JoinToken = token
 	}
 	if r.Mode == "inbound" {
 		// served over TLS with a self-signed certificate of this address, which the app pins

@@ -59,6 +59,9 @@ func Backup(ctx context.Context, st *state.State) (string, error) {
 	if st.Role == RoleRunner {
 		return "", errors.New(i18n.T("compose.runnerNoBackup"))
 	}
+	if err := repoComposeName(st.Dir); err != nil {
+		return "", err
+	}
 	dir := backupDir(st)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
@@ -94,6 +97,46 @@ func restore(ctx context.Context, st *state.State, dump string) error {
 	return system.FromFile(ctx, st.Dir, dump, name, args...)
 }
 
+// repoComposeName makes the folder's compose file docker-compose.yml, the name the docker
+// repository uses and the upgrade writes. A project taken over that was started from
+// compose.yaml, compose.yml or docker-compose.yaml has that file renamed, and the other
+// compose files beside it, which compose would not read, moved aside (<name>.<time>.bak):
+// otherwise compose would go on reading the old file after the upgrade wrote the new one.
+//
+// Args:
+//
+//	dir: the installation folder.
+//
+// Errors:
+//
+//	When a file cannot be renamed.
+func repoComposeName(dir string) error {
+	var found []string
+	for _, name := range composeNames[:4] {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			found = append(found, name)
+		}
+	}
+	// none (the upgrade says so when it reads it), or docker-compose.yml alone: it is the last
+	// name compose looks for, so the first one found only when no other is there
+	if len(found) == 0 || found[0] == "docker-compose.yml" {
+		return nil
+	}
+	stamp := time.Now().Format("20060102-150405")
+	for _, name := range found[1:] {
+		aside := name + "." + stamp + ".bak"
+		if err := os.Rename(filepath.Join(dir, name), filepath.Join(dir, aside)); err != nil {
+			return err
+		}
+		ui.Muted(i18n.T("compose.composeAside", "file", name, "aside", aside))
+	}
+	if err := os.Rename(filepath.Join(dir, found[0]), filepath.Join(dir, "docker-compose.yml")); err != nil {
+		return err
+	}
+	ui.Muted(i18n.T("compose.composeRenamed", "file", found[0]))
+	return nil
+}
+
 // ─── upgrade ──────────────────────────────────────────────────────────────────
 
 // Undo is what a failed upgrade needs to go back: the version, compose file and dump before,
@@ -126,6 +169,9 @@ type Undo struct {
 //	When a step fails.
 func Upgrade(ctx context.Context, st *state.State, to string, prep *Prep) (*Undo, error) {
 	undo := &Undo{Version: st.Version}
+	if err := repoComposeName(st.Dir); err != nil {
+		return nil, err
+	}
 	composeFile := filepath.Join(st.Dir, "docker-compose.yml")
 	old, err := os.ReadFile(composeFile)
 	if err != nil {

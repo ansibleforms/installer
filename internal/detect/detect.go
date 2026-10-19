@@ -46,8 +46,10 @@ const (
 const (
 	// its containers were not started by compose: no project, no folder
 	NotCompose = "notCompose"
-	// its compose folder has no docker-compose.yml or .env the installer can read
+	// its compose file or .env is there, but the installer may not read it
 	NoComposeFile = "noComposeFile"
+	// its compose folder has no compose file or no .env (moved or deleted since it started)
+	MissingComposeFile = "missingComposeFile"
 	// its compose file is not the docker repository's (services, containers' names)
 	NotRepoLayout = "notRepoLayout"
 	// a controller without the mysqldb service: its database is elsewhere
@@ -109,6 +111,8 @@ type Install struct {
 
 	// Problem is why the installer cannot take it over, one of the codes above; "" : it can.
 	Problem string
+	// ProblemFile is the file Problem is about (NoComposeFile, MissingComposeFile), "" : none.
+	ProblemFile string
 
 	// key makes the same installation found twice (docker as podman's alias) one
 	key string

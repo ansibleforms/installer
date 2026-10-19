@@ -3,8 +3,11 @@ package detect
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -224,7 +227,7 @@ func project(ctx context.Context, env Env, engine string, group []container) (In
 			i.Version = DatabaseModeVersion
 		}
 	}
-	i.Problem = composeProblem(i, main, services, envFile)
+	i.Problem, i.ProblemFile = composeProblem(i, main, services, envFile)
 	return i, true
 }
 
@@ -242,48 +245,109 @@ func project(ctx context.Context, env Env, engine string, group []container) (In
 //
 // Returns:
 //
-//	The problem's code, "" when there is none.
-func composeProblem(i Install, main *container, services map[string]string, envFile map[string]string) string {
+//	The problem's code, "" when there is none, and the file it is about (NoComposeFile and
+//	MissingComposeFile: the compose file or .env that cannot be read).
+func composeProblem(i Install, main *container, services map[string]string, envFile map[string]string) (string, string) {
 	if i.Project == "" || i.Dir == "" {
-		return NotCompose
+		return NotCompose, ""
 	}
 	// a Runner of 7.2 in database mode, set up by hand : its own compose file and .env (or none,
 	// its settings in the compose file), replaced by the installer's Runner layout on upgrade
 	if i.Database != nil {
-		if _, err := os.ReadFile(i.Database.ComposeFile); err != nil {
-			return NoComposeFile
+		if problem := unreadable(i.Database.ComposeFile); problem != "" {
+			return problem, i.Database.ComposeFile
 		}
 		if len(services) != 1 {
-			return RunnerLayout
+			return RunnerLayout, ""
 		}
-		return ""
+		return "", ""
 	}
-	composeFile := filepath.Join(i.Dir, "docker-compose.yml")
+	// started from another file (-f) than one of the folder's own compose files
+	composeFile := ProjectComposeFile(i.Dir, main.Config.Labels[labelFiles])
+	if composeFile == "" {
+		return NotRepoLayout, ""
+	}
+	for _, f := range []string{composeFile, filepath.Join(i.Dir, ".env")} {
+		if problem := unreadable(f); problem != "" {
+			return problem, f
+		}
+	}
 	content, err := os.ReadFile(composeFile)
 	if err != nil || envFile == nil {
-		return NoComposeFile
-	}
-	// started from another file (-f) than the folder's docker-compose.yml
-	if files := main.Config.Labels[labelFiles]; files != "" && filepath.Clean(strings.Split(files, ",")[0]) != composeFile {
-		return NotRepoLayout
+		return NoComposeFile, composeFile
 	}
 	if i.Role == RoleRunner {
 		if len(services) != 1 || services["rte"] != i.Name+"_rte" || envFile["RTE_MODE"] == "" || envFile["RTE_LOCAL_PORT"] == "" {
-			return RunnerLayout
+			return RunnerLayout, ""
 		}
 	} else {
 		if services["app"] != i.Name+"_app" || services["rte"] != i.Name+"_rte" || !strings.Contains(string(content), "ghcr.io/ansibleforms/") {
-			return NotRepoLayout
+			return NotRepoLayout, ""
 		}
 		if _, ok := services["mysqldb"]; !ok {
-			return ExternalDB
+			return ExternalDB, ""
 		}
 		if services["mysqldb"] != i.Name+"_db" {
-			return NotRepoLayout
+			return NotRepoLayout, ""
 		}
 	}
 	if i.Version == "" {
-		return UnknownVersion
+		return UnknownVersion, ""
 	}
-	return ""
+	return "", ""
+}
+
+// ComposeNames are the compose files compose reads by itself in a folder, in the order it
+// looks for them: the first one found is the project's.
+var ComposeNames = []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"}
+
+// ProjectComposeFile is the compose file a project was started from: the first of its
+// config_files label when it is one of the folder's own compose files, else (no label) the
+// first of ComposeNames in the folder, else the folder's docker-compose.yml (missing).
+//
+// Args:
+//
+//	dir: the project's folder.
+//	files: its com.docker.compose.project.config_files label ("" when none).
+//
+// Returns:
+//
+//	The file's path, "" when the project was started from a file of another name or folder.
+func ProjectComposeFile(dir, files string) string {
+	dir = filepath.Clean(dir)
+	if files != "" {
+		first := filepath.Clean(strings.Split(files, ",")[0])
+		if filepath.Dir(first) == dir && slices.Contains(ComposeNames, filepath.Base(first)) {
+			return first
+		}
+		return ""
+	}
+	for _, name := range ComposeNames {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return filepath.Join(dir, name)
+		}
+	}
+	return filepath.Join(dir, "docker-compose.yml")
+}
+
+// unreadable tells why a file the upgrade needs cannot be read, if it cannot.
+//
+// Args:
+//
+//	path: the file.
+//
+// Returns:
+//
+//	MissingComposeFile when it does not exist, NoComposeFile when it cannot be read, "" when
+//	it can.
+func unreadable(path string) string {
+	f, err := os.Open(path)
+	if err == nil {
+		f.Close()
+		return ""
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return MissingComposeFile
+	}
+	return NoComposeFile
 }

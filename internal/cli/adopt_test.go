@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/ansibleforms/installer/internal/detect"
+	"github.com/ansibleforms/installer/internal/releases"
 	"github.com/ansibleforms/installer/internal/state"
 	"github.com/ansibleforms/installer/internal/ui"
 )
@@ -70,5 +72,43 @@ func TestOfferFoundNothingAdoptable(t *testing.T) {
 	}
 	if r := reason(dev); r == "" {
 		t.Errorf("no reason given")
+	}
+}
+
+// one found at the version the installer installs is taken over without an upgrade, and said
+// so; an older one, or a Runner in database mode, is upgraded
+func TestCurrent(t *testing.T) {
+	latest := releases.Version{Major: 7, Minor: 3}
+	at := handMade
+	at.Version = "7.3.0"
+	if !current(at, latest) {
+		t.Errorf("7.3.0 is not current at 7.3.0")
+	}
+	if current(handMade, latest) {
+		t.Errorf("7.2.0 is current at 7.3.0")
+	}
+	if current(at, releases.Version{}) {
+		t.Errorf("current when the latest is unknown")
+	}
+	at.Database = &detect.DatabaseRunner{}
+	if current(at, latest) {
+		t.Errorf("a Runner in database mode is current")
+	}
+}
+
+// the compose file's problems name the file, and root is not told to run as root
+func TestReasonNamesTheFile(t *testing.T) {
+	i := handMade
+	i.Problem, i.ProblemFile = detect.MissingComposeFile, "/opt/docker/.env"
+	if r := reason(i); !strings.Contains(r, ".env") || !strings.Contains(r, "/opt/docker") {
+		t.Errorf("reason: %s", r)
+	}
+	i.Problem, i.ProblemFile = detect.NoComposeFile, "/opt/docker/docker-compose.yaml"
+	r := reason(i)
+	if !strings.Contains(r, "docker-compose.yaml") {
+		t.Errorf("reason: %s", r)
+	}
+	if os.Geteuid() == 0 && strings.Contains(r, "as root or") {
+		t.Errorf("root told to run as root: %s", r)
 	}
 }

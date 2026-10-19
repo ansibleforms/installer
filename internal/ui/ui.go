@@ -197,6 +197,27 @@ func takeHelp() string {
 	return h
 }
 
+// plainHelp writes a question's help before it in the plain output, indented, as the full
+// screen shows it under the question: what was found, why it asks.
+//
+// Args:
+//
+//	h: the help, "" for none.
+func plainHelp(h string) {
+	if h == "" {
+		return
+	}
+	fmt.Fprintln(os.Stderr)
+	for _, line := range strings.Split(h, "\n") {
+		if line == "" {
+			fmt.Fprintln(os.Stderr)
+			continue
+		}
+		fmt.Fprintln(os.Stderr, "  "+line)
+	}
+	fmt.Fprintln(os.Stderr)
+}
+
 // Close ends the run : in the full screen its end shown until Enter, then the terminal as it
 // was, with the summary (or the error) printed there too so it stays in the scrollback.
 //
@@ -449,6 +470,7 @@ func printSummary(title string, lines []string) {
 //	ErrBack or ErrAborted in the full screen.
 func Document(title string, build func()) error {
 	if !Fullscreen {
+		plainHelp(takeHelp())
 		build()
 		return nil
 	}
@@ -535,6 +557,7 @@ func Select(title string, options []Option, def string) (string, error) {
 		}
 		return a.Value, nil
 	}
+	plainHelp(h)
 	value := def
 	var opts []huh.Option[string]
 	for _, o := range options {
@@ -576,6 +599,7 @@ func NewPassword(title, again, mismatch, def string) (string, error) {
 		Answered(strings.Repeat("•", min(8, len(a.Value))))
 		return a.Value, nil
 	}
+	plainHelp(h)
 	for {
 		first, second := def, ""
 		if err := run(huh.NewInput().Title(title).EchoMode(huh.EchoModePassword).Value(&first)); err != nil {
@@ -628,6 +652,7 @@ func Confirm(title, yes, no string, def bool) (bool, error) {
 		}
 		return a.Bool, nil
 	}
+	plainHelp(h)
 	value := def
 	err := run(huh.NewConfirm().Title(title).Affirmative(yes).Negative(no).Value(&value))
 	return value, err
@@ -666,6 +691,7 @@ func Input(title, def string, secret bool, validate func(string) error) (string,
 		Answered(shown)
 		return a.Value, nil
 	}
+	plainHelp(h)
 	if p := takeProblem(); p != "" {
 		Warn(p)
 	}

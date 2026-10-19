@@ -139,7 +139,7 @@ func TestDatabaseRunnerWithoutComposeFile(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "docker-compose.yml")); err != nil {
 		t.Fatal(err)
 	}
-	if i := find(context.Background(), f.env())[0]; i.Problem != NoComposeFile {
+	if i := find(context.Background(), f.env())[0]; i.Problem != MissingComposeFile {
 		t.Fatalf("found %+v, want %s", i, NoComposeFile)
 	}
 }

@@ -58,6 +58,8 @@ const (
 	NativeLayout = "nativeLayout"
 	// on Kubernetes, not a release of the ansibleforms chart (or helm is missing here)
 	NoHelm = "noHelm"
+	// on Kubernetes, managed by an Argo CD Application : upgraded there, never from here
+	ArgoCD = "argoCD"
 	// its version could not be read
 	UnknownVersion = "unknownVersion"
 	// it answers on a port, and no engine manages it
@@ -96,6 +98,8 @@ type Install struct {
 	Namespace string
 	Release   string
 	Chart     string
+	// ArgoApp is the Argo CD Application that manages it (its Problem ArgoCD), when known
+	ArgoApp   string
 	Workloads []string
 
 	// Database: a Runner of 7.2 in the deprecated database mode (an RTE alone in its compose

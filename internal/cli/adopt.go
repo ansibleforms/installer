@@ -80,7 +80,7 @@ func reason(i detect.Install) string {
 		// an RTE tells its version only with its token
 		key = "detect.why_unmanagedRunner"
 	}
-	return i18n.T(key, "dir", i.Dir, "port", i.Port, "version", orStr(i.Version, i18n.T("detect.versionUnknown")))
+	return i18n.T(key, "dir", i.Dir, "port", i.Port, "version", orStr(i.Version, i18n.T("detect.versionUnknown")), "app", orStr(i.ArgoApp, "?"))
 }
 
 // foundLine is an installation found on one line: what and where, and why it cannot be
@@ -98,7 +98,7 @@ func foundLine(i detect.Install) string {
 	if i.Adoptable() || i.Problem == detect.Unmanaged {
 		return describe(i)
 	}
-	return describe(i) + ": " + i18n.T("detect.short_"+i.Problem)
+	return describe(i) + ": " + i18n.T("detect.short_"+i.Problem, "app", orStr(i.ArgoApp, "?"))
 }
 
 // foundAdvice is what to do about the installations that cannot be taken over: the advice

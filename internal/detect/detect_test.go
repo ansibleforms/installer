@@ -560,3 +560,31 @@ func TestProbePort(t *testing.T) {
 		t.Errorf("nothing listening: %+v", a)
 	}
 }
+
+// workloads Argo CD manages are found, named after their Application, and never taken over:
+// by its tracking annotation, and by the chart's labels without a Helm release (label tracking)
+func TestFindArgoCD(t *testing.T) {
+	f := &fake{t: t, has: map[string]bool{"kubectl": true}, out: map[string]string{
+		"kubectl get deployments,statefulsets": `{"items":[
+ {"kind":"Deployment","metadata":{"name":"forms-server","namespace":"forms","labels":{"app.kubernetes.io/instance":"forms"},
+  "annotations":{"argocd.argoproj.io/tracking-id":"ansibleforms-prod:apps/Deployment:forms/forms-server"}},
+  "spec":{"template":{"spec":{"containers":[{"image":"ghcr.io/ansibleforms/ansibleforms:7.3.0"}]}}},"status":{"readyReplicas":1}},
+ {"kind":"Deployment","metadata":{"name":"lab-server","namespace":"lab","labels":{"app.kubernetes.io/instance":"lab-forms","app.kubernetes.io/managed-by":"Helm"}},
+  "spec":{"template":{"spec":{"containers":[{"image":"ghcr.io/ansibleforms/ansibleforms:7.2.0"}]}}},"status":{"readyReplicas":1}}
+]}`,
+	}}
+	got := find(context.Background(), f.env())
+	if len(got) != 2 {
+		t.Fatalf("found %+v, want 2", got)
+	}
+	apps := map[string]string{}
+	for _, i := range got {
+		if i.Problem != ArgoCD || i.Adoptable() {
+			t.Errorf("%s: problem %q, want argoCD and not taken over", i.Namespace, i.Problem)
+		}
+		apps[i.Namespace] = i.ArgoApp
+	}
+	if apps["forms"] != "ansibleforms-prod" || apps["lab"] != "lab-forms" {
+		t.Errorf("applications %v", apps)
+	}
+}

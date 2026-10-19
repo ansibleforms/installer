@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"sort"
+	"strings"
 )
 
 // ─── Kubernetes ───────────────────────────────────────────────────────────────
@@ -23,9 +24,10 @@ type workloads struct {
 	Items []struct {
 		Kind     string `json:"kind"`
 		Metadata struct {
-			Name      string            `json:"name"`
-			Namespace string            `json:"namespace"`
-			Labels    map[string]string `json:"labels"`
+			Name        string            `json:"name"`
+			Namespace   string            `json:"namespace"`
+			Labels      map[string]string `json:"labels"`
+			Annotations map[string]string `json:"annotations"`
 		} `json:"metadata"`
 		Spec struct {
 			Template struct {
@@ -40,6 +42,31 @@ type workloads struct {
 			ReadyReplicas int `json:"readyReplicas"`
 		} `json:"status"`
 	} `json:"items"`
+}
+
+// argoApp tells whether Argo CD manages a workload, and its Application's name when it says.
+// Argo CD marks what it applies with the tracking-id annotation (app:group/kind:ns/name) or
+// the argocd.argoproj.io/instance label ; with its default label tracking it leaves only the
+// chart's app.kubernetes.io/instance and managed-by Helm, without a Helm release in the
+// cluster (it renders the chart itself) : the caller decides that case, knowing the releases.
+//
+// Args:
+//
+//	labels: the workload's labels.
+//	annotations: its annotations.
+//
+// Returns:
+//
+//	The Application's name ("" when unknown), and whether Argo CD marks it.
+func argoApp(labels, annotations map[string]string) (string, bool) {
+	if id := annotations["argocd.argoproj.io/tracking-id"]; id != "" {
+		name, _, _ := strings.Cut(id, ":")
+		return name, true
+	}
+	if name := labels["argocd.argoproj.io/instance"]; name != "" {
+		return name, true
+	}
+	return "", false
 }
 
 // chartRe cuts helm's chart column (ansibleforms-7.2.0) into its name and its version
@@ -132,9 +159,17 @@ func kubernetes(ctx context.Context, env Env) []Install {
 				if kind != "app" {
 					role = RoleRunner
 				}
+				// rendered from the chart (managed-by Helm) with no Helm release : Argo CD, which
+				// renders the chart itself and tracks it by its instance label
+				problem, app := NoHelm, ""
+				if name, ok := argoApp(md.Labels, md.Annotations); ok {
+					problem, app = ArgoCD, name
+				} else if md.Labels["app.kubernetes.io/managed-by"] == "Helm" && instance != "" {
+					problem, app = ArgoCD, instance
+				}
 				byRelease[key] = len(found)
 				found = append(found, Install{Engine: Kubernetes, Role: role, Version: version, Running: item.Status.ReadyReplicas > 0,
-					Namespace: md.Namespace, Release: group, Workloads: []string{name}, Problem: NoHelm, key: key})
+					Namespace: md.Namespace, Release: group, Workloads: []string{name}, Problem: problem, ArgoApp: app, key: key})
 			}
 		}
 	}

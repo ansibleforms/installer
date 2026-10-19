@@ -185,7 +185,10 @@ func install(ctx context.Context, f Flags) error {
 
 	controller := func() bool { return p.role == compose.RoleController }
 	runner := func() bool { return p.role == compose.RoleRunner }
-	kubernetes := func() bool { return controller() && p.mode == string(state.Kubernetes) }
+	// on Kubernetes : a controller (the whole chart) or a Runner (the chart's runner mode)
+	onKube := func() bool { return p.mode == string(state.Kubernetes) }
+	kubernetes := func() bool { return controller() && onKube() }
+	kubeRunner := func() bool { return runner() && onKube() }
 	composeCtl := func() bool { return controller() && !kubernetes() }
 	nativeMode := func() bool { return p.mode == string(state.Native) }
 
@@ -257,7 +260,7 @@ func install(ctx context.Context, f Flags) error {
 			return nil
 		}},
 		// compose : the folder and the instance
-		{label: "folder", skip: kubernetes, ask: func() error {
+		{label: "folder", skip: onKube, ask: func() error {
 			def := "/opt/ansibleforms"
 			if runner() {
 				def = "/opt/ansibleforms-runner"
@@ -278,7 +281,7 @@ func install(ctx context.Context, f Flags) error {
 			p.dir, _ = filepath.Abs(d)
 			return nil
 		}},
-		{label: "folder", skip: kubernetes, ask: func() error {
+		{label: "folder", skip: onKube, ask: func() error {
 			def := map[bool]string{true: "runner", false: "af"}[runner()]
 			help, title := i18n.T("install.nameHelp"), i18n.T("install.name")
 			if nativeMode() {
@@ -298,7 +301,8 @@ func install(ctx context.Context, f Flags) error {
 		{label: "app", skip: func() bool { return !runner() }, ask: func() error {
 			return askApp(ctx, f, p)
 		}},
-		{label: "mode", skip: func() bool { return !runner() || f.RunnerMode != "" }, ask: func() error {
+		// on Kubernetes a Runner dials the app (outbound) : nothing reaches it from outside
+		{label: "mode", skip: func() bool { return !runner() || f.RunnerMode != "" || kubeRunner() }, ask: func() error {
 			ui.Explain(i18n.T("runner.modeHelp"))
 			m, err := ui.Select(i18n.T("runner.mode"), []ui.Option{
 				{Label: i18n.T("runner.modeOutbound"), Value: "outbound", Hint: i18n.T("runner.modeOutboundHint")},
@@ -311,7 +315,7 @@ func install(ctx context.Context, f Flags) error {
 			return err
 		}},
 		// the network : the controller's web port, a runner's port (and address, inbound)
-		{label: "network", skip: func() bool { return kubernetes() || f.Port != 0 }, ask: func() error {
+		{label: "network", skip: func() bool { return onKube() || f.Port != 0 }, ask: func() error {
 			title, def := i18n.T("install.port"), compose.FreePort("0.0.0.0", 443)
 			ui.Explain(i18n.T("install.portHelp"))
 			if runner() {
@@ -328,7 +332,7 @@ func install(ctx context.Context, f Flags) error {
 			p.port, _ = strconv.Atoi(s)
 			return nil
 		}},
-		{label: "network", skip: func() bool { return !runner() || p.runnerMode != "inbound" }, ask: func() error {
+		{label: "network", skip: func() bool { return !runner() || p.runnerMode != "inbound" || kubeRunner() }, ask: func() error {
 			def := orStr(p.host, orStr(f.Host, compose.OutboundIP()))
 			ui.Explain(i18n.T("runner.addressHelp"))
 			h, err := textAgain(f.Host, i18n.T("runner.address"), def, notEmpty)
@@ -378,14 +382,19 @@ func install(ctx context.Context, f Flags) error {
 			}
 			return nil
 		}},
-		// Kubernetes : the release, its ingress, its volumes
-		{label: "cluster", skip: func() bool { return !kubernetes() }, ask: func() error {
+		// Kubernetes : the release, its ingress (a controller), its volumes
+		{label: "cluster", skip: func() bool { return !onKube() }, ask: func() error {
 			ns, err := textAgain(f.Namespace, i18n.T("kube.namespace"), orStr(p.namespace, "ansibleforms"), notEmpty)
 			p.namespace = ns
 			return err
 		}},
-		{label: "cluster", skip: func() bool { return !kubernetes() }, ask: func() error {
-			r, err := textAgain(f.Release, i18n.T("kube.release"), orStr(p.release, "ansibleforms"), notEmpty)
+		{label: "cluster", skip: func() bool { return !onKube() }, ask: func() error {
+			// a Runner's release is also its runner's name under Connections > Runners
+			def := map[bool]string{true: "ansibleforms-runner", false: "ansibleforms"}[runner()]
+			if runner() {
+				ui.Explain(i18n.T("kube.releaseRunnerHelp"))
+			}
+			r, err := textAgain(f.Release, i18n.T("kube.release"), orStr(p.release, def), notEmpty)
 			p.release = r
 			if err == nil {
 				ui.Answered(p.namespace + " / " + r)
@@ -410,7 +419,7 @@ func install(ctx context.Context, f Flags) error {
 			}
 			return err
 		}},
-		{label: "storage", skip: func() bool { return !kubernetes() }, ask: func() error {
+		{label: "storage", skip: func() bool { return !onKube() }, ask: func() error {
 			s, err := choice(f.StorageClass, i18n.T("kube.storageClass"), append([]string{""}, kube.StorageClasses(ctx)...), p.storageClass)
 			p.storageClass = s
 			return err
@@ -441,6 +450,8 @@ func install(ctx context.Context, f Flags) error {
 	switch {
 	case kubernetes():
 		return doKube(ctx, f, p)
+	case kubeRunner():
+		return doKubeRunner(ctx, f, p)
 	case runner():
 		return doRunner(ctx, p)
 	}
@@ -502,6 +513,15 @@ func review(p *plan) []string {
 	}
 	out := []string{row("version", p.version.String())}
 	switch {
+	case p.role == compose.RoleRunner && p.mode == string(state.Kubernetes):
+		out = append(out, row("role", i18n.T("install.roleRunnerShort")), row("engine", i18n.T("install.modeKubernetesShort")),
+			row("cluster", p.namespace+" / "+p.release), row("app", p.appURL), row("mode", i18n.T("runner.mode_outbound")),
+			row("storage", orStr(p.storageClass, i18n.T("kube.default"))))
+		if p.join != "" {
+			out = append(out, row("register", i18n.T("runner.registerJoinShort")))
+		} else {
+			out = append(out, row("register", i18n.T("runner.registerApproveShort")))
+		}
 	case p.role == compose.RoleRunner:
 		out = append(out, row("role", i18n.T("install.roleRunnerShort")), row("engine", engine),
 			row("folder", p.dir), row("name", p.name), row("app", p.appURL), row("mode", i18n.T("runner.mode_"+p.runnerMode)))
@@ -744,6 +764,49 @@ func doKube(ctx context.Context, f Flags, p *plan) error {
 	return nil
 }
 
+// doKubeRunner installs a Runner on Kubernetes : the chart's runner mode, an RTE alone that
+// dials the app (outbound), approved at once with a join token, else by an admin.
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	f: the flags.
+//	p: the answers.
+//
+// Errors:
+//
+//	When the join token is not valid or helm fails.
+func doKubeRunner(ctx context.Context, f Flags, p *plan) error {
+	// its token made here, so its fingerprint is said for the admin who approves it
+	r := &kube.RunnerOptions{AppURL: p.appURL, Name: p.release, TrustAppCert: p.trust, Token: compose.Secret(32)}
+	if p.join != "" {
+		token, err := compose.ParseJoin(p.join)
+		if err != nil {
+			return err
+		}
+		r.JoinToken = token
+	}
+	st, err := kube.Install(ctx, kube.Options{Version: p.version.String(), Namespace: p.namespace, Release: p.release,
+		StorageClass: p.storageClass, ExtraValues: f.Values, Runner: r})
+	if err != nil {
+		return err
+	}
+	lines := []string{
+		i18n.T("runner.doneName", "name", p.release),
+		i18n.T("runner.doneMode", "mode", i18n.T("runner.mode_outbound")),
+		i18n.T("runner.doneApp", "url", r.AppURL),
+		"",
+	}
+	if r.JoinToken != "" {
+		lines = append(lines, i18n.T("runner.doneRegistered"))
+	} else {
+		lines = append(lines, i18n.T("runner.doneApprove"), "", i18n.T("runner.doneFingerprint", "fingerprint", compose.Fingerprint(r.Token)))
+	}
+	lines = append(lines, "", i18n.T("kube.doneValues", "file", st.ValuesFile))
+	ui.Summary(i18n.T("runner.done", "version", st.Version), lines)
+	return nil
+}
+
 // ─── container engines ────────────────────────────────────────────────────────
 
 // chooseEngine picks Docker or Podman, or Kubernetes for a controller, in one list : the
@@ -757,7 +820,7 @@ func doKube(ctx context.Context, f Flags, p *plan) error {
 //	tools: what the server has.
 //	prev: the answer of before (Esc), the default.
 //	withKube: Kubernetes is listed (no --mode).
-//	runner: a runner, for which Kubernetes is always greyed out (the Helm chart installs it).
+//	runner: a runner : Kubernetes installs the chart's runner mode, an RTE alone.
 //
 // Returns:
 //
@@ -787,7 +850,7 @@ func chooseEngine(ctx context.Context, f Flags, tools system.Tools, prev string,
 		}
 		opts = append(opts, ui.Option{Label: i18n.T("runtime.toInstall", "runtime", name), Value: string(r), Hint: i18n.T("runtime." + string(r) + "InstallHint")})
 	}
-	kube := withKube && !runner && tools.Kubectl && tools.Helm && tools.Cluster
+	kube := withKube && tools.Kubectl && tools.Helm && tools.Cluster
 	nativeOption := func() ui.Option {
 		hint := "install.modeNativeHint"
 		if runner {
@@ -800,8 +863,8 @@ func chooseEngine(ctx context.Context, f Flags, tools system.Tools, prev string,
 	}
 	if withKube {
 		switch {
-		case runner:
-			opts = append(opts, ui.Option{Label: i18n.T("install.modeKubernetesRunner"), Value: string(state.Kubernetes), Disabled: true})
+		case kube && runner:
+			opts = append(opts, ui.Option{Label: i18n.T("install.modeKubernetes"), Value: string(state.Kubernetes), Hint: i18n.T("install.modeKubernetesRunnerHint")})
 		case kube:
 			opts = append(opts, ui.Option{Label: i18n.T("install.modeKubernetes"), Value: string(state.Kubernetes), Hint: i18n.T("install.modeKubernetesHint")})
 		default:

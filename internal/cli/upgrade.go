@@ -54,6 +54,8 @@ func upgrade(ctx context.Context, f Flags) error {
 		if err := chooseLanguage(func() { ui.Relabel(langLabels()...) }); err != nil {
 			return err
 		}
+		f.Lang = i18n.Current()
+		f.LangAsked = true
 	}
 	if st == nil {
 		if st, err = offerFound(ctx, f, found, false); err != nil {
@@ -86,25 +88,41 @@ func upgrade(ctx context.Context, f Flags) error {
 
 	labels := func() []string {
 		l := []string{stepName("version"), stepName("notes"), stepName("upgrade")}
-		if askLang {
+		// asked here, or by the install before it came to this upgrade
+		if f.LangAsked {
 			l = append([]string{stepName("language")}, l...)
 		}
 		return l
 	}
 	ui.Steps(labels()...)
-	ui.Section(stepName("version"))
-	ui.Answered(from.String() + " → " + to.String())
-	ui.Section(stepName("notes"))
 	entries, err := releases.FetchChangelog(ctx, to)
 	if err != nil {
 		ui.Warn(err.Error())
 	}
 	skipped := releases.Between(entries, from, to)
-	if len(skipped) > 0 {
+	for {
+		ui.Section(stepName("version"))
+		ui.Answered(from.String() + " → " + to.String())
+		ui.Section(stepName("notes"))
+		if len(skipped) == 0 {
+			break
+		}
 		ui.Explain(i18n.T("upgrade.notesHelp", "from", from.String(), "to", to.String()))
-		if err := ui.Document(i18n.T("upgrade.notesTitle", "count", len(skipped)), func() { showNotes(skipped) }); err != nil && !errors.Is(err, ui.ErrBack) {
+		err := ui.Document(i18n.T("upgrade.notesTitle", "count", len(skipped)), func() { showNotes(skipped) })
+		if errors.Is(err, ui.ErrBack) && f.LangAsked {
+			// Esc : back to the language, asked in this run, then the notes again in it
+			ui.Section(stepName("language"))
+			if err := chooseLanguage(func() { ui.Relabel(labels()...) }); err != nil && !errors.Is(err, ui.ErrBack) {
+				return err
+			}
+			f.Lang = i18n.Current()
+			ui.Steps(labels()...)
+			continue
+		}
+		if err != nil && !errors.Is(err, ui.ErrBack) {
 			return err
 		}
+		break
 	}
 	// a Runner of 7.2 in database mode : its runner, its app and its mode asked and reviewed,
 	// then moved to the installer's Runner layout (migrate.go)

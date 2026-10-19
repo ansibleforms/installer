@@ -20,6 +20,9 @@ type Flags struct {
 	InstallerVersion string
 
 	Lang, Version, Role, Mode, Runtime string
+	// LangAsked : the language was asked in this run (not given with --lang), so its step stays
+	// at the left once answered
+	LangAsked                          bool
 	InstallRuntime                     bool
 	Dir, Name                          string
 	Port                               int

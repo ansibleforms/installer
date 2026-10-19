@@ -28,6 +28,8 @@ type wstep struct {
 	label string
 	// skip : not asked (a flag answered it, or the role or the mode has no such step)
 	skip func() bool
+	// shown : at the left even when skipped (the language, asked before the wizard began)
+	shown func() bool
 	// ask asks and keeps the answer ; ui.ErrBack goes to the step before
 	ask func() error
 }
@@ -43,21 +45,26 @@ type wstep struct {
 //
 //	ErrAborted when stopped, or a step's own error.
 func runWizard(list []wstep) error {
+	// back : the step is reached with Esc, so one answered before the wizard began (shown at
+	// the left though skipped, the language) is asked again
+	back := false
 	for i := 0; i < len(list); {
 		ui.Steps(visibleLabels(list)...)
 		s := list[i]
-		if s.skip != nil && s.skip() {
+		if s.skip != nil && s.skip() && !(back && s.shown != nil && s.shown()) {
 			i++
 			continue
 		}
+		back = false
 		ui.Section(stepName(s.label))
 		err := s.ask()
 		if errors.Is(err, ui.ErrBack) {
 			j := i - 1
-			for j > 0 && list[j].skip != nil && list[j].skip() {
+			for j > 0 && list[j].skip != nil && list[j].skip() && (list[j].shown == nil || !list[j].shown()) {
 				j--
 			}
 			i = max(0, j)
+			back = true
 			continue
 		}
 		if err != nil {
@@ -69,7 +76,8 @@ func runWizard(list []wstep) error {
 	return nil
 }
 
-// visibleLabels are the steps at the left : those not skipped, each once, in order.
+// visibleLabels are the steps at the left : those not skipped, or shown anyway, each once, in
+// order.
 //
 // Args:
 //
@@ -82,7 +90,8 @@ func visibleLabels(list []wstep) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, s := range list {
-		if (s.skip != nil && s.skip()) || seen[s.label] {
+		hidden := s.skip != nil && s.skip() && (s.shown == nil || !s.shown())
+		if hidden || seen[s.label] {
 			continue
 		}
 		seen[s.label] = true
@@ -138,6 +147,7 @@ func install(ctx context.Context, f Flags) error {
 			return err
 		}
 		f.Lang = i18n.Current()
+		f.LangAsked = true
 	}
 	if st, err := state.Load(); err == nil {
 		ui.Warn(i18n.T("install.already", "version", st.Version, "mode", string(st.Mode)))
@@ -182,7 +192,7 @@ func install(ctx context.Context, f Flags) error {
 	var list []wstep
 	list = []wstep{
 		// first the language, the server's locale chosen ; its steps renamed once changed
-		{label: "language", skip: func() bool { return ui.Unattended || f.Lang != "" }, ask: func() error {
+		{label: "language", skip: func() bool { return ui.Unattended || f.Lang != "" }, shown: func() bool { return f.LangAsked }, ask: func() error {
 			return chooseLanguage(func() { ui.Relabel(visibleLabels(list)...) })
 		}},
 		// then what this version brings : its breaking changes, removals and deprecations on top

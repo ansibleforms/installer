@@ -38,6 +38,22 @@ type Options struct {
 	// ExtraValues is a values file of the person's own, applied after the installer's
 	// (an external database, resources, node selectors).
 	ExtraValues string
+	// Runner : a Runner alone, the chart's runner mode (runner.enabled), no app nor database
+	Runner *RunnerOptions
+}
+
+// RunnerOptions are the answers of a Runner on Kubernetes : an RTE alone that dials its app.
+type RunnerOptions struct {
+	// AppURL is the app's address as people open it (https://forms.example.com).
+	AppURL string
+	// Name is its runner's name under Connections > Runners (the release's name).
+	Name string
+	// JoinToken approves it at once ; empty, it waits for an admin's approval.
+	JoinToken string
+	// Token is its RTE_TOKEN, made by the installer so its fingerprint can be said.
+	Token string
+	// TrustAppCert accepts the app's self-signed certificate (APP_TLS_VERIFY=0).
+	TrustAppCert bool
 }
 
 // IngressClasses lists the cluster's ingress classes.
@@ -95,6 +111,23 @@ func values(o Options) ([]byte, error) {
 			m["className"] = o.StorageClass
 		}
 		return m
+	}
+	if r := o.Runner; r != nil {
+		runner := map[string]any{"enabled": true, "appUrl": r.AppURL, "name": r.Name, "appTlsVerify": !r.TrustAppCert}
+		if r.JoinToken != "" {
+			runner["joinToken"] = r.JoinToken
+		}
+		v := map[string]any{
+			"runner":       runner,
+			"applications": map[string]any{"rte": map[string]any{"token": r.Token}},
+			"storages":     map[string]any{"server": storage()},
+		}
+		head := []byte("# Chart values written by the AnsibleForms installer for a Runner; the upgrades apply them again.\n")
+		body, err := yaml.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		return append(head, body...), nil
 	}
 	v := map[string]any{
 		"secrets": map[string]any{"generate": true},
@@ -174,6 +207,10 @@ func Install(ctx context.Context, o Options) (*state.State, error) {
 		scheme = "http"
 	}
 	st.URL = scheme + "://" + o.Hostname
+	if o.Runner != nil {
+		// a Runner serves nothing : its address is the app's it dials
+		st.Role, st.URL = "runner", o.Runner.AppURL
+	}
 	data, err := values(o)
 	if err != nil {
 		return nil, err

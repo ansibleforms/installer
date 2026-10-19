@@ -275,8 +275,21 @@ func TestFindComposeRefused(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "docker-compose.yml")); err != nil {
 		t.Fatal(err)
 	}
-	if got := find(context.Background(), f.env()); len(got) != 1 || got[0].Problem != NoComposeFile {
-		t.Fatalf("found %+v, want %s", got, NoComposeFile)
+	if got := find(context.Background(), f.env()); len(got) != 1 || got[0].Problem != MissingComposeFile || got[0].ProblemFile != filepath.Join(dir, "docker-compose.yml") {
+		t.Fatalf("found %+v, want %s", got, MissingComposeFile)
+	}
+	f, dir = composeController(t)
+	if err := os.Remove(filepath.Join(dir, ".env")); err != nil {
+		t.Fatal(err)
+	}
+	if got := find(context.Background(), f.env()); len(got) != 1 || got[0].Problem != MissingComposeFile || got[0].ProblemFile != filepath.Join(dir, ".env") {
+		t.Fatalf("found %+v, want %s for .env", got, MissingComposeFile)
+	}
+	// started with -f from a file of another name: not the docker repository's
+	f, dir = composeController(t)
+	f.out["docker inspect"] = strings.ReplaceAll(f.out["docker inspect"], dir+"/docker-compose.yml", dir+"/forms.yml")
+	if got := find(context.Background(), f.env()); len(got) != 1 || got[0].Problem != NotRepoLayout {
+		t.Fatalf("found %+v, want %s for forms.yml", got, NotRepoLayout)
 	}
 	// a container run without compose
 	f, _ = composeController(t)
@@ -284,6 +297,40 @@ func TestFindComposeRefused(t *testing.T) {
 	f.out["docker inspect"] = `[{"Id":"aaa111","Name":"/forms","Config":{"Image":"ansibleguy/ansibleforms:5.0.10","Labels":{}},"State":{"Status":"running"}}]`
 	if got := find(context.Background(), f.env()); len(got) != 1 || got[0].Problem != NotCompose || got[0].Version != "5.0.10" {
 		t.Fatalf("found %+v, want %s", got, NotCompose)
+	}
+}
+
+// a controller started from docker-compose.yaml (or compose.yaml): read from that file and
+// taken over, as compose reads it
+func TestFindComposeYaml(t *testing.T) {
+	for _, name := range []string{"docker-compose.yaml", "compose.yaml", "compose.yml"} {
+		f, dir := composeController(t)
+		if err := os.Rename(filepath.Join(dir, "docker-compose.yml"), filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+		f.out["docker inspect"] = strings.ReplaceAll(f.out["docker inspect"], dir+"/docker-compose.yml", dir+"/"+name)
+		if got := find(context.Background(), f.env()); len(got) != 1 || !got[0].Adoptable() {
+			t.Fatalf("%s: found %+v, want it adoptable", name, got)
+		}
+	}
+}
+
+// the compose file of a project: its label's when it is one of the folder's own, else the
+// first compose reads by itself
+func TestProjectComposeFile(t *testing.T) {
+	dir := t.TempDir()
+	if got := ProjectComposeFile(dir, dir+"/docker-compose.yaml"); got != filepath.Join(dir, "docker-compose.yaml") {
+		t.Errorf("label: %s", got)
+	}
+	if got := ProjectComposeFile(dir, "/elsewhere/docker-compose.yml"); got != "" {
+		t.Errorf("another folder: %s", got)
+	}
+	if got := ProjectComposeFile(dir, ""); got != filepath.Join(dir, "docker-compose.yml") {
+		t.Errorf("none: %s", got)
+	}
+	write(t, dir, map[string]string{"compose.yml": "services: {}\n", "docker-compose.yml": "services: {}\n"})
+	if got := ProjectComposeFile(dir, ""); got != filepath.Join(dir, "compose.yml") {
+		t.Errorf("no label: %s, want compose.yml (read first)", got)
 	}
 }
 

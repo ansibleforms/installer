@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/ansibleforms/installer/internal/detect"
 	"github.com/ansibleforms/installer/internal/i18n"
 	"github.com/ansibleforms/installer/internal/kube"
+	"github.com/ansibleforms/installer/internal/releases"
 	"github.com/ansibleforms/installer/internal/state"
 	"github.com/ansibleforms/installer/internal/ui"
 )
@@ -80,7 +83,11 @@ func reason(i detect.Install) string {
 		// an RTE tells its version only with its token
 		key = "detect.why_unmanagedRunner"
 	}
-	return i18n.T(key, "dir", i.Dir, "port", i.Port, "version", orStr(i.Version, i18n.T("detect.versionUnknown")), "app", orStr(i.ArgoApp, "?"))
+	if i.Problem == detect.NoComposeFile && os.Geteuid() == 0 {
+		// root may read any file : what stops it is the file's own (a mode, an SELinux label)
+		key = "detect.why_noComposeFileRoot"
+	}
+	return i18n.T(key, "dir", i.Dir, "file", fileOf(i), "port", i.Port, "version", orStr(i.Version, i18n.T("detect.versionUnknown")), "app", orStr(i.ArgoApp, "?"))
 }
 
 // foundLine is an installation found on one line: what and where, and why it cannot be
@@ -98,7 +105,44 @@ func foundLine(i detect.Install) string {
 	if i.Adoptable() || i.Problem == detect.Unmanaged {
 		return describe(i)
 	}
-	return describe(i) + ": " + i18n.T("detect.short_"+i.Problem, "app", orStr(i.ArgoApp, "?"))
+	return describe(i) + ": " + i18n.T("detect.short_"+i.Problem, "app", orStr(i.ArgoApp, "?"), "file", fileOf(i))
+}
+
+// fileOf is the name of the file an installation's problem is about (its compose file, its
+// .env), for the texts that name it.
+//
+// Args:
+//
+//	i: the installation.
+//
+// Returns:
+//
+//	The file's name, docker-compose.yml when the problem names none.
+func fileOf(i detect.Install) string {
+	if i.ProblemFile == "" {
+		return "docker-compose.yml"
+	}
+	return filepath.Base(i.ProblemFile)
+}
+
+// current tells whether an installation found already runs the version the installer
+// installs: taking it over then changes nothing, its next upgrade comes later. A Runner in
+// database mode is never current, its move to a socket mode is an upgrade of its own.
+//
+// Args:
+//
+//	i: the installation.
+//	latest: the version the installer installs (zero when unknown).
+//
+// Returns:
+//
+//	True when it runs that version or a newer one.
+func current(i detect.Install, latest releases.Version) bool {
+	if latest == (releases.Version{}) || i.Database != nil {
+		return false
+	}
+	v, err := releases.ParseVersion(i.Version)
+	return err == nil && v.Compare(latest) >= 0
 }
 
 // foundAdvice is what to do about the installations that cannot be taken over: the advice
@@ -190,11 +234,27 @@ func offerFound(ctx context.Context, f Flags, found []detect.Install, alongside 
 		}
 		return adopt(ctx, adoptable[0], false)
 	}
+	// the version the installer installs : one found that runs it already is taken over
+	// without an upgrade, and said so (zero when it cannot be known : an upgrade then)
+	latest, _ := targetVersion(ctx, f)
+	allCurrent := len(adoptable) > 0
+	for _, i := range adoptable {
+		if !current(i, latest) {
+			allCurrent = false
+		}
+	}
 	for {
-		help := i18n.T("detect.found") + "\n\n" + foundList(found) + "\n\n"
-		if len(adoptable) > 0 {
+		title := i18n.T("detect.found")
+		if len(found) == 1 && current(found[0], latest) {
+			title = i18n.T("detect.foundCurrent", "version", found[0].Version)
+		}
+		help := title + "\n\n" + foundList(found) + "\n\n"
+		switch {
+		case allCurrent:
+			help += i18n.T("detect.foundHelpCurrent")
+		case len(adoptable) > 0:
 			help += i18n.T("detect.foundHelp")
-		} else {
+		default:
 			help += i18n.T("detect.foundHelpNone")
 		}
 		var opts []ui.Option
@@ -207,7 +267,11 @@ func offerFound(ctx context.Context, f Flags, found []detect.Install, alongside 
 			if def == "stop" {
 				def = "adopt:" + strconv.Itoa(n)
 			}
-			opts = append(opts, ui.Option{Label: i18n.T("detect.adopt", "what", describe(i)), Value: "adopt:" + strconv.Itoa(n), Hint: i18n.T("detect.adoptHint")})
+			label, hint := i18n.T("detect.adopt", "what", describe(i)), i18n.T("detect.adoptHint")
+			if current(i, latest) {
+				label, hint = i18n.T("detect.adoptCurrent", "what", describe(i)), i18n.T("detect.adoptCurrentHint")
+			}
+			opts = append(opts, ui.Option{Label: label, Value: "adopt:" + strconv.Itoa(n), Hint: hint})
 		}
 		if alongside {
 			opts = append(opts, ui.Option{Label: i18n.T("detect.alongside"), Value: "alongside", Hint: i18n.T("detect.alongsideHint")})

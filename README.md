@@ -31,7 +31,9 @@ Every release on the [Releases](https://github.com/ansibleforms/installer/releas
 
 ## Commands
 
+The install script keeps the binary as `ansibleforms-installer` in `/usr/local/bin` for root, else in `~/.local/bin`.
 Run `ansibleforms-installer --help` for every flag; without a command, the installer installs.
+Through sudo, give its full path, `sudo /usr/local/bin/ansibleforms-installer`: sudo's `secure_path` often leaves out `/usr/local/bin`.
 
 | Command | What it does |
 |---|---|
@@ -45,7 +47,8 @@ Run `ansibleforms-installer --help` for every flag; without a command, the insta
 
 ## Existing installations
 
-The installer remembers what it installed in `installer.json` (`/etc/ansibleforms` for root, else `~/.config/ansibleforms`).
+The installer remembers what it manages in `installer.json`, in `/etc/ansibleforms` for root, else in `~/.config/ansibleforms`.
+That folder holds no binary, and only exists once the installer has installed an AnsibleForms or taken one over.
 Without that file, `install`, `upgrade` and `status` look for an AnsibleForms already on the server, whatever installed it.
 
 | Found | How it is found | Taken over when |

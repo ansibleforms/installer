@@ -28,6 +28,7 @@ A full-screen wizard asks one question at a time, with Esc to go back and a revi
 
 The installer's version follows the app's: each AnsibleForms release comes with an installer of the same version, which installs it.
 Every release on the [Releases](https://github.com/ansibleforms/installer/releases) page has binaries for Linux on amd64 and arm64.
+[CHANGELOG.md](CHANGELOG.md) lists what changed in the installer itself with each release, beside the version it installs.
 
 ## Commands
 
@@ -77,7 +78,8 @@ Without a token to read, you type the runner's token (masked) or join as a new r
 
 Contributions are welcome. Start with these files:
 
-- [CONTRIBUTING.md](CONTRIBUTING.md): how to build the installer, propose a change and open a pull request
+- [CONTRIBUTING.md](CONTRIBUTING.md): how to build the installer, propose a change, and how it is released
+- [CHANGELOG.md](CHANGELOG.md): the changes in every installer release
 - [SECURITY.md](SECURITY.md): how to report a security issue
 
 ## License

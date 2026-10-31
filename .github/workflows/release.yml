@@ -9,8 +9,11 @@ name: Release
 # Run it by hand ("Run workflow") with a version to catch up on a release, or to build one
 # again: an existing release keeps its tag and gets its binaries replaced.
 #
-# GITHUB_TOKEN is enough here: it creates the tag and the release of this repository. The
-# dispatch itself comes from the ansibleforms-release GitHub App of the app's repository.
+# The release is created with a token of the ansibleforms-release GitHub App (the App that
+# sends the dispatch from the app's repository), so it is ansibleforms[bot]'s, as the app's and
+# the Helm chart's releases are. It needs the variable RELEASE_APP_CLIENT_ID and the secret
+# RELEASE_APP_PRIVATE_KEY in this repository; without them the release is still made, with
+# GITHUB_TOKEN (github-actions[bot]'s), and a warning says so.
 
 on:
   repository_dispatch:
@@ -74,11 +77,31 @@ jobs:
           done
           (cd dist && sha256sum ansibleforms-installer_linux_* > checksums.txt && cat checksums.txt)
 
+      # ansibleforms[bot]'s token when the App is set up here, else GITHUB_TOKEN with a warning
+      - name: Check the release App is set up
+        id: app_configured
+        env:
+          KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          if [ -n "$KEY" ] && [ -n "${{ vars.RELEASE_APP_CLIENT_ID }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::RELEASE_APP_CLIENT_ID or RELEASE_APP_PRIVATE_KEY is not set: the release is made by github-actions[bot], not ansibleforms[bot]"
+          fi
+
+      - uses: actions/create-github-app-token@v3
+        id: app
+        if: steps.app_configured.outputs.enabled == 'true'
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       # The installer of an older line's patch must not take GitHub's "Latest release" badge
       # from the newer major: latest only when this is the highest version released.
       - name: Create the release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
           VERSION: ${{ steps.v.outputs.version }}
           TAG: ${{ steps.v.outputs.tag }}
         run: |

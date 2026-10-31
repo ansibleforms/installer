@@ -1,32 +1,36 @@
 name: Release
 
-# Releases the installer with AnsibleForms: the same version, its binaries attached. When the
-# app releases, its release workflow sends an app-release repository_dispatch here with the
-# tag (7.3.0). This workflow tests the installer, builds it for Linux on amd64 and arm64 with
-# that version written in (main.version: the version it installs by default), and creates
-# the release v7.3.0 with the binaries and their checksums.
+# Releasing is driven by version.App in internal/version/version.go, the AnsibleForms version
+# the installer installs by default and the installer's own version: the Follow app release
+# pull request moves it. Once that is merged, this workflow reads it, tests the installer,
+# builds it for Linux on amd64 and arm64, and creates the release v<version> with the
+# binaries and their checksums.
 #
-# Run it by hand ("Run workflow") with a version to catch up on a release, or to build one
-# again: an existing release keeps its tag and gets its binaries replaced.
+# It waits for CI rather than running beside it: workflow_run only fires once CI has
+# finished, and the job below does nothing unless it finished green on a push. Every push to
+# main runs it, and a version that already has a release is a no-op: a change merged between
+# two app releases goes out with the next one, listed under Unreleased in CHANGELOG.md.
 #
-# The release is created with a token of the ansibleforms-release GitHub App (the App that
-# sends the dispatch from the app's repository), so it is ansibleforms[bot]'s, as the app's and
-# the Helm chart's releases are. It needs the variable RELEASE_APP_CLIENT_ID and the secret
-# RELEASE_APP_PRIVATE_KEY in this repository; without them the release is still made, with
-# GITHUB_TOKEN (github-actions[bot]'s), and a warning says so.
+# Run it by hand ("Run workflow") on main or a release/<major>.x line to release what its
+# version.App says when the automatic run did not, for example after a failure. To follow an
+# app release by hand, run Follow app release instead.
+#
+# The release is created with a token of the ansibleforms-release GitHub App, so it is
+# ansibleforms[bot]'s, as the app's and the Helm chart's releases are. It needs the variable
+# RELEASE_APP_CLIENT_ID and the secret RELEASE_APP_PRIVATE_KEY in this repository, as the
+# Follow app release workflow does: without them the release fails, and says so.
 
 on:
-  repository_dispatch:
-    types: [app-release]
+  # workflow_run always runs this file from main, whichever branch CI ran on, so a
+  # maintenance line (release/<major>.x), should one be cut, is released by this same copy.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main, 'release/**']
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'AnsibleForms version to release the installer for, e.g. 7.3.0'
-        type: string
-        required: true
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
@@ -36,35 +40,61 @@ jobs:
   release:
     name: Build and release
     runs-on: ubuntu-latest
+    # Green CI, and only from a push. A pull request whose branch also happens to be called
+    # main would otherwise reach this. By hand, only from main or a release line.
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/'))) ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     steps:
-      - name: Work out the version
+      # workflow_run always runs the workflow file from the default branch and checks out its
+      # tip by default, which is not necessarily the commit that was tested. Build what CI
+      # actually looked at.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Read the version
         id: v
-        env:
-          RAW: ${{ github.event.client_payload.tag || inputs.version }}
         run: |
           set -euo pipefail
-          version="${RAW#v}"
-          # final releases only: a release candidate gets no installer
+          # the one line const App = "x.y.z": final releases only, never a release candidate
+          version="$(sed -nE 's/^const App = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' internal/version/version.go)"
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::'$RAW' is not a release version (x.y.z)."; exit 1
+            echo "::error::internal/version/version.go needs exactly one line const App = \"x.y.z\"."; exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
           echo "Installer for AnsibleForms $version"
 
-      - uses: actions/checkout@v7
+      - name: Skip if the release already exists
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, nothing to do."
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-go@v7
+        if: steps.check.outputs.released == 'true'
         with:
           go-version-file: go.mod
 
       - name: Test
+        if: steps.check.outputs.released == 'true'
         run: |
           go vet ./...
           go test ./...
 
-      # static binaries (no cgo), the version written in, debug symbols left out
+      # static binaries (no cgo), debug symbols left out; the version is version.App, compiled in
       - name: Build
+        if: steps.check.outputs.released == 'true'
         env:
           VERSION: ${{ steps.v.outputs.version }}
         run: |
@@ -72,27 +102,22 @@ jobs:
           mkdir -p dist
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
-              -ldflags "-s -w -X main.version=$VERSION" \
+              -ldflags "-s -w" \
               -o "dist/ansibleforms-installer_linux_$arch" .
           done
+          printed="$(dist/ansibleforms-installer_linux_amd64 version)"
+          if [ "$printed" != "$VERSION" ]; then
+            echo "::error::The binary says '$printed', not $VERSION."; exit 1
+          fi
           (cd dist && sha256sum ansibleforms-installer_linux_* > checksums.txt && cat checksums.txt)
 
-      # ansibleforms[bot]'s token when the App is set up here, else GITHUB_TOKEN with a warning
-      - name: Check the release App is set up
-        id: app_configured
-        env:
-          KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-        run: |
-          if [ -n "$KEY" ] && [ -n "${{ vars.RELEASE_APP_CLIENT_ID }}" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::RELEASE_APP_CLIENT_ID or RELEASE_APP_PRIVATE_KEY is not set: the release is made by github-actions[bot], not ansibleforms[bot]"
-          fi
-
+      # The release is created with a token of the ansibleforms-release GitHub App, so it is
+      # ansibleforms[bot]'s, as the app's and the Helm chart's releases are (GITHUB_TOKEN made
+      # it github-actions[bot]'s). RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY, as the
+      # Follow app release workflow uses them.
       - uses: actions/create-github-app-token@v3
-        id: app
-        if: steps.app_configured.outputs.enabled == 'true'
+        id: release_app
+        if: steps.check.outputs.released == 'true'
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -100,21 +125,21 @@ jobs:
       # The installer of an older line's patch must not take GitHub's "Latest release" badge
       # from the newer major: latest only when this is the highest version released.
       - name: Create the release
+        if: steps.check.outputs.released == 'true'
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          GH_TOKEN: ${{ steps.release_app.outputs.token }}
           VERSION: ${{ steps.v.outputs.version }}
           TAG: ${{ steps.v.outputs.tag }}
+          # The commit CI tested and this job built. Without --target the tag would go on
+          # the tip of the default branch, so a release/<major>.x release would tag main.
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           set -euo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber
-            echo "$TAG existed: its binaries were replaced"
-            exit 0
-          fi
           highest=$( (gh release list --limit 200 --json tagName --jq '.[].tagName'; echo "$TAG") \
             | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
           latest=false
           [ "$highest" = "$TAG" ] && latest=true
+          echo "Releasing $TAG (highest released: $highest, latest: $latest)"
           notes="The installer of AnsibleForms $VERSION, which it installs by default.
 
           What changes in AnsibleForms $VERSION: https://github.com/ansibleforms/ansibleforms/releases/tag/$VERSION
@@ -122,6 +147,7 @@ jobs:
           \`\`\`bash
           curl -fsSL https://ansibleforms.com/install | sh
           \`\`\`"
-          gh release create "$TAG" dist/* --title "$TAG" --target "$GITHUB_SHA" \
+          # The title is the tag, as in every AnsibleForms repository
+          gh release create "$TAG" dist/* --title "$TAG" --target "$SHA" \
             --notes "$notes" --latest="$latest"
           echo "Released $TAG (latest: $latest)"

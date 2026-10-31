@@ -21,11 +21,8 @@ import (
 	"github.com/ansibleforms/installer/internal/native"
 	"github.com/ansibleforms/installer/internal/system"
 	"github.com/ansibleforms/installer/internal/ui"
+	"github.com/ansibleforms/installer/internal/version"
 )
-
-// version is set at build time (goreleaser: -X main.version=7.3.0); it is the AnsibleForms
-// version the installer installs by default.
-var version = "dev"
 
 // usage lists the commands and flags (--help).
 func usage() {
@@ -114,7 +111,7 @@ func main() {
 	if o.Lang != "" {
 		i18n.Set(o.Lang)
 	}
-	o.InstallerVersion = version
+	o.InstallerVersion = version.App
 	// no terminal (a pipe without /dev/tty, CI) : unattended
 	ui.Unattended = o.Yes || !isTerminal()
 
@@ -124,7 +121,7 @@ func main() {
 	// commands, a small terminal and --yes write plain lines
 	system.LogLine = ui.Log
 	if command == "install" || command == "upgrade" || command == "" {
-		ui.StartFullscreen(i18n.T("app.header", "version", version), "")
+		ui.StartFullscreen(i18n.T("app.header", "version", version.App), "")
 	}
 	err := cli.Run(ctx, command, o)
 	ui.Close(err)

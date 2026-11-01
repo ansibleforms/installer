@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 7.5.0
+
+AnsibleForms 7.5.0.
+
+### Changed
+
+- **Defaults to AnsibleForms 7.5.0**: `install` and `upgrade` go to it unless `--version` says
+  otherwise. See the [7.5.0 release notes](https://github.com/ansibleforms/ansibleforms/releases/tag/7.5.0).
+
 ## 7.4.2
 
 AnsibleForms 7.4.2.

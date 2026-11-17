@@ -9,6 +9,9 @@
   the `mysql_native_password` line MySQL 9 refuses to start with. Any other user still on
   `mysql_native_password` stops the upgrade before anything changes, with the commands to move
   it by hand. A rollback after the new MySQL started keeps its data aside and loads the backup.
+- **A rollback past MySQL 9.7 keeps the other database users**: they are saved next to the backup
+  before the switch and made again with their passwords and grants. Other databases stay in the
+  data folder kept aside, which the rollback names.
 
 ## 7.6.0
 

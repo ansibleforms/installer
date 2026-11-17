@@ -39,6 +39,11 @@ type Prep struct {
 	// MySQLBlocked is the message that stops the move: database users on mysql_native_password
 	// whose password the installer does not know ("" : none).
 	MySQLBlocked string
+	// MySQLUsers are the database users the move takes from mysql_native_password to
+	// caching_sha2_password ('user'@'host'), MySQLCnf whether data/mysql/my.cnf has the
+	// mysql_native_password line it takes out.
+	MySQLUsers []string
+	MySQLCnf   bool
 }
 
 // generatedKeys are the keys a missing value is made for, as a fresh install makes it: the
@@ -276,7 +281,15 @@ func (p *Prep) Describe(to string) []string {
 		out = append(out, i18n.T("compose.seedCustom", "file", "data/"+seedNewName(to)))
 	}
 	if p.MySQLTo != "" {
-		out = append(out, i18n.T("compose.mysqlMove", "from", p.MySQLFrom, "to", p.MySQLTo))
+		// the users and the my.cnf line said only when there are some to move
+		move := []string{i18n.T("compose.mysqlMove", "from", p.MySQLFrom, "to", p.MySQLTo)}
+		if len(p.MySQLUsers) > 0 {
+			move = append(move, i18n.T("compose.mysqlMoveUsers", "to", p.MySQLTo, "users", strings.Join(p.MySQLUsers, ", ")))
+		}
+		if p.MySQLCnf {
+			move = append(move, i18n.T("compose.mysqlMoveCnf", "to", p.MySQLTo))
+		}
+		out = append(out, strings.Join(move, "\n"))
 	}
 	return out
 }

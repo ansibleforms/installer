@@ -149,6 +149,10 @@ type Undo struct {
 	Env     string
 	Seed    string
 	MyCnf   string
+	// Users is the file of the database users besides root and the app's user, saved next to
+	// the dump before a move to a newer MySQL line ("" : none), made again by a rollback that
+	// starts the old MySQL on a new data folder.
+	Users string
 	// MySQLData is the database's data folder when the upgrade moves it to a newer MySQL line
 	// (mysql.go), MySQLTo that MySQL's version, Started set once the new containers were
 	// started: the new MySQL may have upgraded the data, which the old one cannot start on.
@@ -212,6 +216,13 @@ func Upgrade(ctx context.Context, st *state.State, to string, prep *Prep) (*Undo
 		}
 		undo.Dump = dump
 		ui.Done(i18n.T("compose.backedUp", "file", dump))
+		// a move to a newer MySQL line: the users the old MySQL would not make again on a new
+		// data folder saved for a rollback, before anything changes (mysql.go)
+		if prep.MySQLTo != "" {
+			if undo.Users, err = saveUsers(ctx, st, dump); err != nil {
+				return undo, err
+			}
+		}
 		// a database moved to a MySQL without mysql_native_password: its users and its my.cnf
 		// made ready while the current MySQL still runs (mysql.go)
 		if err := moveMySQL(ctx, st, prep, undo); err != nil {
@@ -275,7 +286,9 @@ func Upgrade(ctx context.Context, st *state.State, to string, prep *Prep) (*Undo
 // Rollback goes back to the version before a failed upgrade: its compose file, .env, seed and
 // my.cnf, and for a controller its database as the backup holds it (a new version may have
 // changed the schema). After a move to a newer MySQL line, its data folder is moved aside
-// first, and the old MySQL starts on a new one.
+// first, the old MySQL starts on a new one, and the database users other than root and the
+// app's user are made again from the file saved before the switch (a failure there is only a
+// warning).
 //
 // Args:
 //
@@ -300,12 +313,13 @@ func Rollback(ctx context.Context, st *state.State, undo *Undo) error {
 	if st.Role != RoleRunner && undo.Dump != "" {
 		// the newer MySQL may have upgraded the data, which the old one cannot start on: the
 		// data moved aside, the old MySQL starts on a new folder and the backup is loaded in it
+		aside := ""
 		if undo.MySQLData != "" && undo.Started {
 			if err := runCompose(ctx, st, "stop", "mysqldb"); err != nil {
 				return err
 			}
-			aside, err := moveDataAside(ctx, system.Runtime(st.Runtime), undo.MySQLData, undo.MySQLTo)
-			if err != nil {
+			var err error
+			if aside, err = moveDataAside(ctx, system.Runtime(st.Runtime), undo.MySQLData, undo.MySQLTo); err != nil {
 				return err
 			}
 			ui.Warn(i18n.T("compose.mysqlAside", "version", undo.MySQLTo, "dir", aside))
@@ -319,6 +333,13 @@ func Rollback(ctx context.Context, st *state.State, undo *Undo) error {
 		ui.Step(i18n.T("compose.restoring", "file", undo.Dump))
 		if err := restore(ctx, st, undo.Dump); err != nil {
 			return err
+		}
+		// the new folder has root and the app's user only: the others made again from the
+		// file saved before the switch, a failure only said (the file stays for a load by hand)
+		if aside != "" && undo.Users != "" {
+			if msg := replayUsers(ctx, st, undo.Users); msg != "" {
+				ui.Warn(msg)
+			}
 		}
 	}
 	if err := runCompose(ctx, st, "up", "-d"); err != nil {

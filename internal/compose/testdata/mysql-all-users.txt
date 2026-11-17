@@ -1,0 +1,8 @@
+ansibleforms	%
+mysql.infoschema	localhost
+mysql.session	localhost
+mysql.sys	localhost
+readers	%
+report	%
+root	%
+root	localhost

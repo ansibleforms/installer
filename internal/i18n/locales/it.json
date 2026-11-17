@@ -385,10 +385,15 @@
   "compose.seedCustom": "data/seed.yaml è stato modificato a mano, quindi resta. Quello della nuova versione viene salvato come {file}.\nUniscili (l'RTE locale ora richiede rte_mode: inbound e una credenziale), altrimenti i playbook potrebbero non girare.",
   "compose.envWriting": "Aggiunta al .env: {keys}",
   "compose.seedWriting": "Sostituzione di data/seed.yaml con quello della nuova versione",
-  "compose.mysqlMove": "Il database passa da MySQL {from} a {to}, che non ha più mysql_native_password.\nGli utenti del database che lo usano ancora passano a caching_sha2_password con le loro password del .env, e la sua riga esce da data/mysql/my.cnf (il vecchio file viene salvato accanto).",
+  "compose.mysqlMove": "Il database passa da MySQL {from} a {to}, che aggiorna i suoi dati sul posto al primo avvio.",
+  "compose.mysqlMoveUsers": "Questi utenti del database passano da mysql_native_password, che MySQL {to} non ha più, a caching_sha2_password con le loro password del .env: {users}.",
+  "compose.mysqlMoveCnf": "La riga mysql_native_password, con cui MySQL {to} non parte, esce da data/mysql/my.cnf (il vecchio file viene salvato accanto).",
   "compose.mysqlBlocked": "MySQL {to} non ha più mysql_native_password, e questi utenti del database accedono ancora con esso: {users}.\nL'installer conosce solo le password di root e dell'utente dell'app. Passa gli altri a caching_sha2_password con le loro password, come root nel database:\n\n{exec}\n{commands}\n\nPoi aggiorna di nuovo. Non è stato cambiato nulla.",
   "compose.mysqlPasswordHolder": "<password>",
   "compose.mysqlUsers": "Passaggio degli utenti del database a caching_sha2_password: {users}",
   "compose.mysqlCnf": "Rimozione di mysql_native_password da data/mysql/my.cnf",
-  "compose.mysqlAside": "I dati di MySQL {version} restano in {dir}: il MySQL precedente parte con una nuova cartella e vi carica il backup."
+  "compose.mysqlAside": "I dati di MySQL {version} restano in {dir}: il MySQL precedente parte con una nuova cartella e vi carica il backup.\nI database diversi da AnsibleForms, e gli utenti del database che non è stato possibile ripristinare, sono solo in {dir}.",
+  "compose.mysqlUsersSaving": "Salvataggio degli altri utenti del database per un rollback in {file}: {users}",
+  "compose.mysqlUsersRestoring": "Ripristino degli altri utenti del database da {file}",
+  "compose.mysqlUsersFailed": "Alcuni utenti del database non sono stati ripristinati:\n{error}\nCarica {file} come root nel database per ricrearli."
 }

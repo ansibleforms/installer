@@ -40,7 +40,10 @@ import (
 //
 // A rollback after the new MySQL started cannot give its data directory to the old MySQL (no
 // MySQL starts on the data of a newer line): the directory is moved aside, the old MySQL starts
-// on a new one and the backup is loaded into it.
+// on a new one and the backup is loaded into it. The backup holds the AnsibleForms schema only,
+// and the old MySQL makes only root and the app's user again, so the upgrade also saves the other
+// database users (SHOW CREATE USER, SHOW GRANTS) before the switch, next to the backup, and the
+// rollback makes them again from that file.
 
 // MySQLUser is a database account, as mysql.user lists it.
 type MySQLUser struct {
@@ -92,7 +95,53 @@ const myCnfPath = "data/mysql/my.cnf"
 //
 //	When the container or a statement fails.
 var mysqlRun = func(ctx context.Context, st *state.State, sql string) (string, error) {
-	name, args := composeCmd(system.Runtime(st.Runtime), Project(st), "exec", "-T", "mysqldb", "sh", "-c", mysqlScript)
+	return mysqlExec(ctx, st, mysqlScript, sql)
+}
+
+// mysql as mysqlScript runs it, every statement tried even after one that failed (--force), the
+// errors written with the rows (mysql still ends without an error then: they are read from them)
+const mysqlForceScript = mysqlScript + " --force 2>&1"
+
+// mysqlReplay runs SQL as root in an installation's database as mysqlRun does, but goes on past
+// a statement that fails: a statement that cannot be made again (a grant on a table only the
+// data moved aside has) does not keep the next ones from it. A test puts a fake in its place.
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	st: the installation.
+//	sql: the statements.
+//
+// Returns:
+//
+//	What mysql printed: the rows and the errors (lines that start with ERROR).
+//
+// Errors:
+//
+//	When the container fails.
+var mysqlReplay = func(ctx context.Context, st *state.State, sql string) (string, error) {
+	return mysqlExec(ctx, st, mysqlForceScript, sql)
+}
+
+// mysqlExec runs a mysql command line in an installation's database container, the statements
+// on its standard input.
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	st: the installation.
+//	script: the command line, run by sh in the container (mysqlScript, mysqlForceScript).
+//	sql: the statements.
+//
+// Returns:
+//
+//	What it printed.
+//
+// Errors:
+//
+//	When the container or the command fails.
+func mysqlExec(ctx context.Context, st *state.State, script, sql string) (string, error) {
+	name, args := composeCmd(system.Runtime(st.Runtime), Project(st), "exec", "-T", "mysqldb", "sh", "-c", script)
 	return system.Input(ctx, st.Dir, sql, name, args...)
 }
 
@@ -469,8 +518,15 @@ func prepareMySQL(ctx context.Context, st *state.State, p *Prep, current, next, 
 	if err != nil {
 		return err
 	}
-	_, unknown := splitUsers(users, knownPasswords(env))
+	moved, unknown := splitUsers(users, knownPasswords(env))
 	p.MySQLFrom, p.MySQLTo = mysqlVersion(from), mysqlVersion(to)
+	p.MySQLUsers = nil
+	for _, u := range moved {
+		p.MySQLUsers = append(p.MySQLUsers, u.String())
+	}
+	if cnf, err := os.ReadFile(filepath.Join(st.Dir, filepath.FromSlash(myCnfPath))); err == nil {
+		_, p.MySQLCnf = dropNativePassword(string(cnf))
+	}
 	if len(unknown) > 0 {
 		p.MySQLBlocked = mysqlBlocked(p.MySQLTo, unknown, mysqlExecHint(st))
 	}
@@ -619,6 +675,229 @@ func dropMyCnfLine(st *state.State, undo *Undo) error {
 	undo.MyCnf = string(old)
 	ui.Step(i18n.T("compose.mysqlCnf"))
 	return os.WriteFile(path, []byte(next), info.Mode().Perm())
+}
+
+// ─── the other users, saved for a rollback ────────────────────────────────────
+
+// the query of every database account, one per line (user, host)
+const allUsersSQL = "SELECT user, host FROM mysql.user ORDER BY user, host;\n"
+
+// the session in which SHOW CREATE USER writes a password hash as a hex literal (MySQL 8.0.17 and
+// later): a caching_sha2_password hash holds bytes a string literal would not carry through
+// mysql's output and back
+const hexSQL = "SET SESSION print_identified_with_as_hex = ON;\n"
+
+// usersSuffix ends the name of the file of the other users, next to the backup it goes with
+// (ansibleforms-7.2.0-20261117-101500.users.sql beside ansibleforms-7.2.0-20261117-101500.sql).
+const usersSuffix = ".users.sql"
+
+// otherUsers are the database accounts the old MySQL would not make again on a new data folder:
+// all but root and the app's user (MYSQLDB_USER), which its entrypoint makes from the .env, and
+// MySQL's own accounts (mysql.sys, mysql.session, mysql.infoschema, any mysql.%), which it makes
+// itself.
+//
+// Args:
+//
+//	users: every account of the database.
+//	env: the installation's .env.
+//
+// Returns:
+//
+//	The accounts to save, in their order.
+func otherUsers(users []MySQLUser, env string) []MySQLUser {
+	app := envValue(env, "MYSQLDB_USER")
+	var out []MySQLUser
+	for _, u := range users {
+		if u.User == "root" || (app != "" && u.User == app) || strings.HasPrefix(u.User, "mysql.") {
+			continue
+		}
+		out = append(out, u)
+	}
+	return out
+}
+
+// exportUsersSQL is the SQL that prints how to make accounts again: SHOW CREATE USER and SHOW
+// GRANTS for each, the password hashes as hex literals.
+//
+// Args:
+//
+//	users: the accounts.
+//
+// Returns:
+//
+//	The statements, the session's first.
+func exportUsersSQL(users []MySQLUser) string {
+	var b strings.Builder
+	b.WriteString(sessionSQL)
+	b.WriteString(hexSQL)
+	for _, u := range users {
+		fmt.Fprintf(&b, "SHOW CREATE USER %s;\nSHOW GRANTS FOR %s;\n", u, u)
+	}
+	return b.String()
+}
+
+// usersScript makes what exportUsersSQL printed a script that makes the accounts again, and that
+// can be run more than once: every CREATE USER first, as CREATE USER IF NOT EXISTS (a role is
+// an account a grant names), then the grants in their order, then FLUSH PRIVILEGES.
+//
+// Args:
+//
+//	out: what mysql printed, one statement a line (batch mode, escaped).
+//	header: a comment line for the top of the file ("" : none).
+//
+// Returns:
+//
+//	The script.
+//
+// Errors:
+//
+//	When a line is neither a CREATE USER, a GRANT nor a REVOKE.
+func usersScript(out, header string) (string, error) {
+	var creates, grants []string
+	for _, line := range strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		stmt := unescapeBatch(line)
+		switch {
+		case strings.HasPrefix(stmt, "CREATE USER "):
+			creates = append(creates, "CREATE USER IF NOT EXISTS "+strings.TrimPrefix(stmt, "CREATE USER "))
+		case strings.HasPrefix(stmt, "GRANT "), strings.HasPrefix(stmt, "REVOKE "):
+			grants = append(grants, stmt)
+		default:
+			return "", fmt.Errorf("unexpected line from SHOW CREATE USER or SHOW GRANTS: %q", line)
+		}
+	}
+	var b strings.Builder
+	if header != "" {
+		b.WriteString("-- " + header + "\n")
+	}
+	b.WriteString(sessionSQL)
+	for _, stmt := range append(creates, grants...) {
+		b.WriteString(stmt + ";\n")
+	}
+	b.WriteString("FLUSH PRIVILEGES;\n")
+	return b.String(), nil
+}
+
+// usersFile is the file of the other users that goes with a backup.
+//
+// Args:
+//
+//	dump: the backup's path.
+//
+// Returns:
+//
+//	The file's path, beside it.
+func usersFile(dump string) string {
+	return strings.TrimSuffix(dump, ".sql") + usersSuffix
+}
+
+// saveUsers saves the database accounts the old MySQL would not make again (otherUsers) next to
+// the backup, as the SQL that makes them again (usersScript), readable by its owner only like
+// the backup: it holds their password hashes. Run before the switch to a newer MySQL line, while
+// the current one still runs.
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	st: the installation.
+//	dump: the backup's path.
+//
+// Returns:
+//
+//	The file's path, "" when the database has no such account (no file then).
+//
+// Errors:
+//
+//	When the database cannot be asked or the file cannot be written.
+func saveUsers(ctx context.Context, st *state.State, dump string) (string, error) {
+	envData, err := os.ReadFile(filepath.Join(st.Dir, ".env"))
+	if err != nil {
+		return "", err
+	}
+	out, err := mysqlRun(ctx, st, allUsersSQL)
+	if err != nil {
+		return "", err
+	}
+	all, err := parseUsers(out)
+	if err != nil {
+		return "", err
+	}
+	users := otherUsers(all, string(envData))
+	if len(users) == 0 {
+		return "", nil
+	}
+	out, err = mysqlRun(ctx, st, exportUsersSQL(users))
+	if err != nil {
+		return "", err
+	}
+	script, err := usersScript(out, "Database users of "+st.Dir+" on MySQL, besides root and the app's user: load as root to make them again")
+	if err != nil {
+		return "", err
+	}
+	path := usersFile(dump)
+	names := make([]string, len(users))
+	for i, u := range users {
+		names[i] = u.String()
+	}
+	ui.Step(i18n.T("compose.mysqlUsersSaving", "users", strings.Join(names, ", "), "file", path))
+	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// replayUsers makes the saved accounts again in the database after a rollback loaded the backup
+// into a new data folder. It never fails the rollback: what went wrong is said in a warning with
+// the file's path, to load it by hand.
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	st: the installation (its database running).
+//	file: the file saveUsers wrote.
+//
+// Returns:
+//
+//	The warning to show, "" when every statement went through.
+func replayUsers(ctx context.Context, st *state.State, file string) string {
+	data, err := os.ReadFile(file)
+	if err == nil {
+		ui.Step(i18n.T("compose.mysqlUsersRestoring", "file", file))
+		var out string
+		out, err = mysqlReplay(ctx, st, string(data))
+		if err == nil {
+			err = replayErrors(out)
+		}
+	}
+	if err != nil {
+		return i18n.T("compose.mysqlUsersFailed", "file", file, "error", err)
+	}
+	return ""
+}
+
+// replayErrors reads the errors mysql --force printed among its rows (ERROR 1146 (42S02) at
+// line 7: ...).
+//
+// Args:
+//
+//	out: what mysql printed.
+//
+// Errors:
+//
+//	The errors, one a line, when there is one.
+func replayErrors(out string) error {
+	var errs []string
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); strings.HasPrefix(line, "ERROR") {
+			errs = append(errs, line)
+		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return errors.New(strings.Join(errs, "\n"))
 }
 
 // ─── a rollback after the new MySQL started ───────────────────────────────────

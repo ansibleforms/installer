@@ -14,10 +14,17 @@ import (
 // ─── a fake database ──────────────────────────────────────────────────────────
 
 // fakeMySQL is a database whose answers come from fixtures: the query of the users on
-// mysql_native_password answers users (an error when it is "error"), every statement is kept.
+// mysql_native_password answers users (an error when it is "error"), the query of every
+// account answers all, SHOW CREATE USER and SHOW GRANTS answer shown, a replay answers
+// replayOut (replayErr its error), every statement is kept.
 type fakeMySQL struct {
-	users string
-	ran   []string
+	users     string
+	all       string
+	shown     string
+	replayOut string
+	replayErr error
+	ran       []string
+	replayed  []string
 }
 
 // use puts the fake in place of mysqlRun for a test.
@@ -32,9 +39,20 @@ func (f *fakeMySQL) use(t *testing.T) {
 			}
 			return f.users, nil
 		}
+		if sql == allUsersSQL {
+			return f.all, nil
+		}
+		if strings.HasPrefix(sql, sessionSQL+hexSQL) {
+			return f.shown, nil
+		}
 		return "", nil
 	}
-	t.Cleanup(func() { mysqlRun = was })
+	wasReplay := mysqlReplay
+	mysqlReplay = func(ctx context.Context, st *state.State, sql string) (string, error) {
+		f.replayed = append(f.replayed, sql)
+		return f.replayOut, f.replayErr
+	}
+	t.Cleanup(func() { mysqlRun, mysqlReplay = was, wasReplay })
 }
 
 // alters are the statements the fake ran besides the query of the users.
@@ -415,5 +433,211 @@ func TestPrepareDatabaseDown(t *testing.T) {
 	(&fakeMySQL{users: "error"}).use(t)
 	if _, err := Prepare(t.Context(), st, "7.3.0"); err == nil {
 		t.Error("Prepare went on without the database's users")
+	}
+}
+
+// the review says the users move only when some do, and the my.cnf line only when it is there
+func TestDescribeMySQLMove(t *testing.T) {
+	st := mysqlFixture(t, "mysql:9.7.4")
+	(&fakeMySQL{users: knownUsersOut}).use(t)
+	p, err := Prepare(t.Context(), st, "7.3.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.MySQLUsers) != 3 || p.MySQLUsers[0] != "'ansibleforms'@'%'" || !p.MySQLCnf {
+		t.Fatalf("users %v, my.cnf %t", p.MySQLUsers, p.MySQLCnf)
+	}
+	review := strings.Join(p.Describe("7.3.0"), "\n")
+	for _, s := range []string{"MySQL 8.4.11 to 9.7.4", "upgrades its data in place", "'ansibleforms'@'%', 'root'@'%'", "caching_sha2_password", "data/mysql/my.cnf"} {
+		if !strings.Contains(review, s) {
+			t.Errorf("review lacks %q:\n%s", s, review)
+		}
+	}
+
+	// a default 8.4 install: no user on mysql_native_password, no line in my.cnf
+	st = mysqlFixture(t, "mysql:9.7.4")
+	if err := os.WriteFile(filepath.Join(st.Dir, filepath.FromSlash(myCnfPath)), []byte("[mysqld]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	(&fakeMySQL{users: ""}).use(t)
+	if p, err = Prepare(t.Context(), st, "7.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.MySQLUsers) != 0 || p.MySQLCnf {
+		t.Fatalf("users %v, my.cnf %t", p.MySQLUsers, p.MySQLCnf)
+	}
+	review = strings.Join(p.Describe("7.3.0"), "\n")
+	if !strings.Contains(review, "MySQL 8.4.11 to 9.7.4") || !strings.Contains(review, "upgrades its data in place") {
+		t.Errorf("review: %s", review)
+	}
+	for _, s := range []string{"users", "caching_sha2_password", "my.cnf"} {
+		if strings.Contains(review, s) {
+			t.Errorf("review says %q without a user or a line to move:\n%s", s, review)
+		}
+	}
+
+	// users but no line, and the other way round
+	only := (&Prep{MySQLFrom: "8.4.11", MySQLTo: "9.7.4", MySQLCnf: true}).Describe("7.3.0")
+	if len(only) != 1 || strings.Contains(only[0], "caching_sha2_password") || !strings.Contains(only[0], "my.cnf") {
+		t.Errorf("line only: %q", only)
+	}
+	only = (&Prep{MySQLFrom: "8.4.11", MySQLTo: "9.7.4", MySQLUsers: []string{"'root'@'%'"}}).Describe("7.3.0")
+	if len(only) != 1 || !strings.Contains(only[0], "'root'@'%'") || strings.Contains(only[0], "my.cnf") {
+		t.Errorf("users only: %q", only)
+	}
+}
+
+// ─── the other users, saved for a rollback ────────────────────────────────────
+
+// root, the app's user and MySQL's own accounts are made again by the old MySQL: not saved
+func TestOtherUsers(t *testing.T) {
+	all, err := parseUsers(read(t, "mysql-all-users.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	all = append(all, MySQLUser{"mysql.custom", "%"}, MySQLUser{"ansibleforms", "localhost"}, MySQLUser{"", "localhost"})
+	got := otherUsers(all, read(t, "env-7.2-install.env"))
+	want := []MySQLUser{{"readers", "%"}, {"report", "%"}, {"", "localhost"}}
+	if len(got) != len(want) {
+		t.Fatalf("saved %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("user %d: %q, want %q", i, got[i], want[i])
+		}
+	}
+	// an older installation connects the app as root: every other account is saved
+	if got := otherUsers([]MySQLUser{{"root", "%"}, {"ansibleforms", "%"}}, "MYSQLDB_ROOT_PASSWORD=x\n"); len(got) != 1 || got[0].User != "ansibleforms" {
+		t.Errorf("app as root: %v", got)
+	}
+}
+
+// each account is shown by SHOW CREATE USER and SHOW GRANTS, its hash as a hex literal
+func TestExportUsersSQL(t *testing.T) {
+	got := exportUsersSQL([]MySQLUser{{"report", "%"}, {"o'neil", "10.0.0.%"}})
+	want := sessionSQL + "SET SESSION print_identified_with_as_hex = ON;\n" +
+		"SHOW CREATE USER 'report'@'%';\nSHOW GRANTS FOR 'report'@'%';\n" +
+		"SHOW CREATE USER 'o\\'neil'@'10.0.0.%';\nSHOW GRANTS FOR 'o\\'neil'@'10.0.0.%';\n"
+	if got != want {
+		t.Errorf("SQL:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// the saved SQL makes every account first (IF NOT EXISTS: it can be run again), then grants,
+// mysql's batch escapes read back, and ends with FLUSH PRIVILEGES
+func TestUsersScript(t *testing.T) {
+	got, err := usersScript(read(t, "mysql-show-users.txt"), "users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
+	if len(lines) != 11 || lines[0] != "-- users" || lines[1]+"\n" != sessionSQL || lines[10] != "FLUSH PRIVILEGES;" {
+		t.Fatalf("script:\n%s", got)
+	}
+	if !strings.HasPrefix(lines[2], "CREATE USER IF NOT EXISTS `readers`@`%` IDENTIFIED WITH 'caching_sha2_password' REQUIRE NONE") {
+		t.Errorf("role: %s", lines[2])
+	}
+	report := lines[3]
+	for _, s := range []string{
+		"CREATE USER IF NOT EXISTS `report`@`%` IDENTIFIED WITH 'caching_sha2_password' AS 0x2441243030352",
+		`ATTRIBUTE '{"comment": "multi\\nline; it\'s"}';`,
+	} {
+		if !strings.Contains(report, s) {
+			t.Errorf("account lacks %s:\n%s", s, report)
+		}
+	}
+	for i, want := range []string{
+		"GRANT USAGE ON *.* TO `readers`@`%`;",
+		"GRANT SELECT ON `reports`.* TO `readers`@`%`;",
+		"GRANT USAGE ON *.* TO `report`@`%`;",
+		"GRANT SELECT ON `AnsibleForms`.* TO `report`@`%`;",
+		"GRANT INSERT ON `reports`.`t` TO `report`@`%`;",
+		"GRANT `readers`@`%` TO `report`@`%`;",
+	} {
+		if lines[4+i] != want {
+			t.Errorf("line %d: %s, want %s", 4+i, lines[4+i], want)
+		}
+	}
+	if _, err := usersScript("+----+\n", ""); err == nil {
+		t.Error("a line that is no statement was taken")
+	}
+	if got, err := usersScript("", ""); err != nil || got != sessionSQL+"FLUSH PRIVILEGES;\n" {
+		t.Errorf("no account: %q, %v", got, err)
+	}
+}
+
+// the other accounts are saved next to the backup, readable by their owner only; none, no file
+func TestSaveUsers(t *testing.T) {
+	st := mysqlFixture(t, "mysql:9.7.4")
+	db := &fakeMySQL{all: read(t, "mysql-all-users.txt"), shown: read(t, "mysql-show-users.txt")}
+	db.use(t)
+	dump := filepath.Join(st.Dir, "installer-backups", "ansibleforms-7.2.0-20261117-101500.sql")
+	if err := os.MkdirAll(filepath.Dir(dump), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path, err := saveUsers(t.Context(), st, dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != filepath.Join(st.Dir, "installer-backups", "ansibleforms-7.2.0-20261117-101500.users.sql") {
+		t.Errorf("file %s", path)
+	}
+	if len(db.ran) != 2 || db.ran[0] != allUsersSQL || db.ran[1] != exportUsersSQL([]MySQLUser{{"readers", "%"}, {"report", "%"}}) {
+		t.Errorf("statements %q", db.ran)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v", info.Mode().Perm())
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "CREATE USER IF NOT EXISTS `report`@`%`") || !strings.HasSuffix(string(data), "FLUSH PRIVILEGES;\n") {
+		t.Errorf("file:\n%s", data)
+	}
+
+	// only root, the app's user and MySQL's own: nothing to save
+	(&fakeMySQL{all: "ansibleforms\t%\nmysql.sys\tlocalhost\nroot\t%\n"}).use(t)
+	if path, err := saveUsers(t.Context(), st, dump+".2"); err != nil || path != "" {
+		t.Errorf("no other user: %q, %v", path, err)
+	}
+}
+
+// the rollback replays the saved file as it is; mysql's errors make a warning with the file's
+// path, never a failure
+func TestReplayUsers(t *testing.T) {
+	st := mysqlFixture(t, "mysql:9.7.4")
+	file := filepath.Join(t.TempDir(), "ansibleforms-7.2.0-20261117-101500.users.sql")
+	script, err := usersScript(read(t, "mysql-show-users.txt"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db := &fakeMySQL{}
+	db.use(t)
+	if msg := replayUsers(t.Context(), st, file); msg != "" {
+		t.Errorf("warning %s", msg)
+	}
+	if len(db.replayed) != 1 || db.replayed[0] != script {
+		t.Errorf("replayed %q", db.replayed)
+	}
+
+	// a statement that fails (a grant on a table only the data moved aside has)
+	db = &fakeMySQL{replayOut: "ERROR 1146 (42S02) at line 8: Table 'reports.t' doesn't exist\n"}
+	db.use(t)
+	msg := replayUsers(t.Context(), st, file)
+	if !strings.Contains(msg, file) || !strings.Contains(msg, "ERROR 1146") {
+		t.Errorf("warning %q", msg)
+	}
+	// the container fails, or the file is gone
+	(&fakeMySQL{replayErr: errors.New("exec failed")}).use(t)
+	if msg := replayUsers(t.Context(), st, file); !strings.Contains(msg, file) || !strings.Contains(msg, "exec failed") {
+		t.Errorf("warning %q", msg)
+	}
+	if msg := replayUsers(t.Context(), st, file+".gone"); !strings.Contains(msg, file+".gone") {
+		t.Errorf("warning %q", msg)
 	}
 }

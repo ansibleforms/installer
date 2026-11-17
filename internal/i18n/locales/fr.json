@@ -385,10 +385,15 @@
   "compose.seedCustom": "data/seed.yaml a été modifié à la main, il est donc conservé. Celui de la nouvelle version est enregistré sous {file}.\nFusionnez-les (le RTE local a maintenant besoin de rte_mode: inbound et d'un identifiant), sinon les playbooks risquent de ne pas tourner.",
   "compose.envWriting": "Ajout au .env : {keys}",
   "compose.seedWriting": "Remplacement de data/seed.yaml par celui de la nouvelle version",
-  "compose.mysqlMove": "La base de données passe de MySQL {from} à {to}, qui n'a plus mysql_native_password.\nLes utilisateurs de la base qui l'utilisent encore passent à caching_sha2_password avec leurs mots de passe du .env, et sa ligne quitte data/mysql/my.cnf (l'ancien fichier est sauvegardé à côté).",
+  "compose.mysqlMove": "La base de données passe de MySQL {from} à {to}, qui met à niveau ses données sur place à son premier démarrage.",
+  "compose.mysqlMoveUsers": "Ces utilisateurs de la base passent de mysql_native_password, que MySQL {to} n'a plus, à caching_sha2_password avec leurs mots de passe du .env : {users}.",
+  "compose.mysqlMoveCnf": "La ligne mysql_native_password, avec laquelle MySQL {to} ne démarre pas, quitte data/mysql/my.cnf (l'ancien fichier est sauvegardé à côté).",
   "compose.mysqlBlocked": "MySQL {to} n'a plus mysql_native_password, et ces utilisateurs de la base se connectent encore avec : {users}.\nL'installateur ne connaît que les mots de passe de root et de l'utilisateur de l'application. Passez les autres à caching_sha2_password avec leurs propres mots de passe, en root dans la base :\n\n{exec}\n{commands}\n\nPuis relancez la mise à jour. Rien n'a été modifié.",
   "compose.mysqlPasswordHolder": "<mot de passe>",
   "compose.mysqlUsers": "Passage des utilisateurs de la base à caching_sha2_password : {users}",
   "compose.mysqlCnf": "Retrait de mysql_native_password de data/mysql/my.cnf",
-  "compose.mysqlAside": "Les données de MySQL {version} sont conservées dans {dir} : le MySQL précédent démarre sur un nouveau dossier et la sauvegarde y est chargée."
+  "compose.mysqlAside": "Les données de MySQL {version} sont conservées dans {dir} : le MySQL précédent démarre sur un nouveau dossier et la sauvegarde y est chargée.\nLes bases autres qu'AnsibleForms, et les utilisateurs de la base qui n'ont pas pu être restaurés, ne sont que dans {dir}.",
+  "compose.mysqlUsersSaving": "Sauvegarde des autres utilisateurs de la base pour un retour arrière dans {file} : {users}",
+  "compose.mysqlUsersRestoring": "Restauration des autres utilisateurs de la base depuis {file}",
+  "compose.mysqlUsersFailed": "Certains utilisateurs de la base n'ont pas pu être restaurés :\n{error}\nChargez {file} en root dans la base pour les recréer."
 }

@@ -385,10 +385,15 @@
   "compose.seedCustom": "data/seed.yaml is met de hand gewijzigd en blijft dus. Die van de nieuwe versie staat ernaast als {file}.\nVoeg ze samen (de lokale RTE heeft nu rte_mode: inbound en een credential nodig), anders draaien playbooks misschien niet.",
   "compose.envWriting": "Toevoegen aan .env: {keys}",
   "compose.seedWriting": "data/seed.yaml vervangen door die van de nieuwe versie",
-  "compose.mysqlMove": "De database gaat van MySQL {from} naar {to}, dat geen mysql_native_password meer heeft.\nDe databasegebruikers die het nog gebruiken gaan met hun wachtwoorden uit de .env naar caching_sha2_password, en de regel verdwijnt uit data/mysql/my.cnf (het oude bestand wordt ernaast bewaard).",
+  "compose.mysqlMove": "De database gaat van MySQL {from} naar {to}, dat de gegevens bij de eerste start ter plekke bijwerkt.",
+  "compose.mysqlMoveUsers": "Deze databasegebruikers gaan van mysql_native_password, dat MySQL {to} niet meer heeft, met hun wachtwoorden uit de .env naar caching_sha2_password: {users}.",
+  "compose.mysqlMoveCnf": "De regel mysql_native_password, waarmee MySQL {to} niet start, verdwijnt uit data/mysql/my.cnf (het oude bestand wordt ernaast bewaard).",
   "compose.mysqlBlocked": "MySQL {to} heeft geen mysql_native_password meer, en deze databasegebruikers melden zich er nog mee aan: {users}.\nDe installer kent alleen de wachtwoorden van root en de gebruiker van de app. Zet de andere met hun eigen wachtwoorden over naar caching_sha2_password, als root in de database:\n\n{exec}\n{commands}\n\nUpgrade daarna opnieuw. Er is niets gewijzigd.",
   "compose.mysqlPasswordHolder": "<wachtwoord>",
   "compose.mysqlUsers": "Databasegebruikers overzetten naar caching_sha2_password: {users}",
   "compose.mysqlCnf": "mysql_native_password verwijderen uit data/mysql/my.cnf",
-  "compose.mysqlAside": "De gegevens van MySQL {version} blijven in {dir}: de vorige MySQL start met een nieuwe map en de back-up wordt daarin geladen."
+  "compose.mysqlAside": "De gegevens van MySQL {version} blijven in {dir}: de vorige MySQL start met een nieuwe map en de back-up wordt daarin geladen.\nAndere databases dan AnsibleForms, en databasegebruikers die niet hersteld konden worden, staan alleen in {dir}.",
+  "compose.mysqlUsersSaving": "De andere databasegebruikers bewaren voor een rollback in {file}: {users}",
+  "compose.mysqlUsersRestoring": "De andere databasegebruikers herstellen uit {file}",
+  "compose.mysqlUsersFailed": "Sommige databasegebruikers konden niet hersteld worden:\n{error}\nLaad {file} als root in de database om ze opnieuw te maken."
 }

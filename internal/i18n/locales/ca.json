@@ -385,10 +385,15 @@
   "compose.seedCustom": "data/seed.yaml es va canviar a mà, així que es conserva. El de la nova versió es desa com a {file}.\nCombineu-los (l'RTE local ara necessita rte_mode: inbound i una credencial), o els playbooks podrien no executar-se.",
   "compose.envWriting": "Afegint al .env: {keys}",
   "compose.seedWriting": "Substituint data/seed.yaml pel de la nova versió",
-  "compose.mysqlMove": "La base de dades passa de MySQL {from} a {to}, que ja no té mysql_native_password.\nEls usuaris de la base de dades que encara l'usen passen a caching_sha2_password amb les contrasenyes del .env, i la seva línia surt de data/mysql/my.cnf (el fitxer anterior es desa al costat).",
+  "compose.mysqlMove": "La base de dades passa de MySQL {from} a {to}, que actualitza les dades al seu lloc en la primera arrencada.",
+  "compose.mysqlMoveUsers": "Aquests usuaris de la base de dades passen de mysql_native_password, que MySQL {to} ja no té, a caching_sha2_password amb les contrasenyes del .env: {users}.",
+  "compose.mysqlMoveCnf": "La línia mysql_native_password, amb la qual MySQL {to} no arrenca, surt de data/mysql/my.cnf (el fitxer anterior es desa al costat).",
   "compose.mysqlBlocked": "MySQL {to} ja no té mysql_native_password, i aquests usuaris de la base de dades encara hi inicien sessió: {users}.\nL'instal·lador només coneix les contrasenyes de root i de l'usuari de l'aplicació. Passeu els altres a caching_sha2_password amb les seves pròpies contrasenyes, com a root a la base de dades:\n\n{exec}\n{commands}\n\nDesprés torneu a actualitzar. No s'ha canviat res.",
   "compose.mysqlPasswordHolder": "<contrasenya>",
   "compose.mysqlUsers": "Passant els usuaris de la base de dades a caching_sha2_password: {users}",
   "compose.mysqlCnf": "Traient mysql_native_password de data/mysql/my.cnf",
-  "compose.mysqlAside": "Les dades de MySQL {version} es conserven a {dir}: el MySQL anterior arrenca amb una carpeta nova i s'hi carrega la còpia de seguretat."
+  "compose.mysqlAside": "Les dades de MySQL {version} es conserven a {dir}: el MySQL anterior arrenca amb una carpeta nova i s'hi carrega la còpia de seguretat.\nLes bases de dades diferents d'AnsibleForms, i els usuaris que no s'han pogut restaurar, només són a {dir}.",
+  "compose.mysqlUsersSaving": "Desant els altres usuaris de la base de dades per a una reversió a {file}: {users}",
+  "compose.mysqlUsersRestoring": "Restaurant els altres usuaris de la base de dades des de {file}",
+  "compose.mysqlUsersFailed": "Alguns usuaris de la base de dades no s'han pogut restaurar:\n{error}\nCarregueu {file} com a root a la base de dades per tornar-los a crear."
 }

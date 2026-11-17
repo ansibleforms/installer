@@ -3,8 +3,8 @@ version: 2
 # Keeps the Go modules and the workflow actions up to date. Updates are never grouped: every
 # dependency gets its own pull request, so each one can be reviewed and reverted on its own.
 #
-# Major versions are ignored: a Go module's major is a new import path and a code change,
-# done by hand, and an action's major is taken by hand after reading its changelog.
+# Major versions are proposed too, read against their changelog before merging. A Go module's
+# major is a new import path, which Dependabot does not propose: that one stays by hand.
 #
 # Commit prefixes follow Conventional Commits: build for the Go modules built into the
 # installer, ci for the workflow actions.
@@ -17,9 +17,6 @@ updates:
     commit-message:
       prefix: build
       include: scope
-    ignore:
-      - dependency-name: '*'
-        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
@@ -27,6 +24,3 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
-    ignore:
-      - dependency-name: '*'
-        update-types: ['version-update:semver-major']

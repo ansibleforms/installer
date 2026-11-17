@@ -1,5 +1,8 @@
 version: 2
 
+# Every pending update gets its pull request at once (open-pull-requests-limit: 100 on each
+# entry, as Dependabot has no unlimited value), instead of five at a time per entry.
+
 # Keeps the Go modules and the workflow actions up to date. Updates are never grouped: every
 # dependency gets its own pull request, so each one can be reviewed and reverted on its own.
 #
@@ -11,6 +14,7 @@ version: 2
 
 updates:
   - package-ecosystem: gomod
+    open-pull-requests-limit: 100
     directory: /
     schedule:
       interval: weekly
@@ -19,6 +23,8 @@ updates:
       include: scope
 
   - package-ecosystem: github-actions
+
+    open-pull-requests-limit: 100
     directory: /
     schedule:
       interval: weekly

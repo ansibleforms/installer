@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **Upgrades move the database from MySQL 8.4 to 9.7 LTS safely**: root and the app's user move
+  to `caching_sha2_password` with their passwords from the `.env`, and `data/mysql/my.cnf` drops
+  the `mysql_native_password` line MySQL 9 refuses to start with. Any other user still on
+  `mysql_native_password` stops the upgrade before anything changes, with the commands to move
+  it by hand. A rollback after the new MySQL started keeps its data aside and loads the backup.
+
 ## 7.6.0
 
 AnsibleForms 7.6.0.

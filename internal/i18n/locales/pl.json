@@ -384,5 +384,11 @@
   "compose.seedReplaced": "data/seed.yaml jest zastępowany plikiem nowej wersji: aplikacja łączy się teraz sama ze swoim lokalnym RTE (inbound), z poświadczeniem.\nStary seed jest zapisywany obok.",
   "compose.seedCustom": "data/seed.yaml był zmieniany ręcznie, więc zostaje. Plik nowej wersji zapisano jako {file}.\nPołącz je (lokalne RTE potrzebuje teraz rte_mode: inbound i poświadczenia), inaczej playbooki mogą nie działać.",
   "compose.envWriting": "Dodawanie do .env: {keys}",
-  "compose.seedWriting": "Zastępowanie data/seed.yaml plikiem nowej wersji"
+  "compose.seedWriting": "Zastępowanie data/seed.yaml plikiem nowej wersji",
+  "compose.mysqlMove": "Baza danych przechodzi z MySQL {from} na {to}, który nie ma już mysql_native_password.\nUżytkownicy bazy, którzy wciąż go używają, przechodzą na caching_sha2_password z hasłami z pliku .env, a jego wiersz znika z data/mysql/my.cnf (stary plik jest zapisywany obok).",
+  "compose.mysqlBlocked": "MySQL {to} nie ma już mysql_native_password, a ci użytkownicy bazy wciąż logują się z jego pomocą: {users}.\nInstalator zna tylko hasła roota i użytkownika aplikacji. Przenieś pozostałych na caching_sha2_password z ich własnymi hasłami, jako root w bazie:\n\n{exec}\n{commands}\n\nNastępnie zaktualizuj ponownie. Nic nie zostało zmienione.",
+  "compose.mysqlPasswordHolder": "<hasło>",
+  "compose.mysqlUsers": "Przenoszenie użytkowników bazy na caching_sha2_password: {users}",
+  "compose.mysqlCnf": "Usuwanie mysql_native_password z data/mysql/my.cnf",
+  "compose.mysqlAside": "Dane MySQL {version} pozostają w {dir}: poprzedni MySQL startuje z nowym folderem i wczytuje do niego kopię zapasową."
 }

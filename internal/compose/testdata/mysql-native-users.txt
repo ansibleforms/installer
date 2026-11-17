@@ -1,0 +1,4 @@
+ansibleforms	%
+report\tbot	10.0.0.%
+root	%
+root	localhost

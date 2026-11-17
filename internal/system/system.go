@@ -192,6 +192,45 @@ func FromFile(ctx context.Context, dir, path, name string, args ...string) error
 	return nil
 }
 
+// Input runs a command with a text as its standard input and returns what it printed, nothing
+// shown (SQL for the database, which may hold passwords: on the standard input they never
+// show on a command line, as ps would list it).
+//
+// Args:
+//
+//	ctx: the context, to cancel.
+//	dir: the working directory ("" for the current one).
+//	input: the text written to its standard input.
+//	name: the program.
+//	args: its arguments.
+//
+// Returns:
+//
+//	Its standard output, trimmed.
+//
+// Errors:
+//
+//	When it fails, with its error output in the message (never the input).
+func Input(ctx context.Context, dir, input, name string, args ...string) (string, error) {
+	if Verbose {
+		fmt.Fprintf(os.Stderr, "  $ %s %s\n", name, strings.Join(args, " "))
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	cmd.Stdin = strings.NewReader(input)
+	var out, errOut bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errOut
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(errOut.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("%s %s: %s", name, strings.Join(args, " "), msg)
+	}
+	return strings.TrimSpace(out.String()), nil
+}
+
 // Has tells whether a program is on the PATH.
 //
 // Args:

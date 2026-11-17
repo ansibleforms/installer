@@ -384,5 +384,11 @@
   "compose.seedReplaced": "data/seed.yaml を新しいバージョンのものに置き換えます。アプリはローカルの RTE に資格情報を使って自分から接続します (inbound)。\n元の seed は隣に保存します。",
   "compose.seedCustom": "data/seed.yaml は手動で変更されているため、そのまま残します。新しいバージョンのものは {file} として保存します。\n両方をまとめてください (ローカルの RTE には rte_mode: inbound と資格情報が必要です)。そうしないとプレイブックが動かない場合があります。",
   "compose.envWriting": ".env に追加しています: {keys}",
-  "compose.seedWriting": "data/seed.yaml を新しいバージョンのものに置き換えています"
+  "compose.seedWriting": "data/seed.yaml を新しいバージョンのものに置き換えています",
+  "compose.mysqlMove": "データベースは MySQL {from} から {to} に移ります。{to} には mysql_native_password がありません。\nまだそれを使っているデータベースユーザーは .env のパスワードで caching_sha2_password に移り、その行は data/mysql/my.cnf から削除されます (元のファイルは隣に保存します)。",
+  "compose.mysqlBlocked": "MySQL {to} には mysql_native_password がなく、次のデータベースユーザーはまだそれでサインインしています: {users}。\nインストーラーが知っているのは root とアプリのユーザーのパスワードだけです。データベースの root として、ほかのユーザーをそれぞれのパスワードで caching_sha2_password に移してください:\n\n{exec}\n{commands}\n\nその後、もう一度アップグレードしてください。何も変更していません。",
+  "compose.mysqlPasswordHolder": "<パスワード>",
+  "compose.mysqlUsers": "データベースユーザーを caching_sha2_password に移しています: {users}",
+  "compose.mysqlCnf": "data/mysql/my.cnf から mysql_native_password を削除しています",
+  "compose.mysqlAside": "MySQL {version} のデータは {dir} に残しています。以前の MySQL は新しいフォルダーで起動し、そこにバックアップを読み込みます。"
 }

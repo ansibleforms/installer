@@ -32,6 +32,13 @@ type Prep struct {
 	// by hand: kept, the new one saved beside it), "" (nothing to do).
 	Seed       string
 	SeedAction string
+	// MySQLFrom and MySQLTo are the MySQL versions of the current and the new compose file
+	// when the new one no longer has mysql_native_password ("" : no such move, mysql.go).
+	MySQLFrom string
+	MySQLTo   string
+	// MySQLBlocked is the message that stops the move: database users on mysql_native_password
+	// whose password the installer does not know ("" : none).
+	MySQLBlocked string
 }
 
 // generatedKeys are the keys a missing value is made for, as a fresh install makes it: the
@@ -173,7 +180,8 @@ func seedAction(current, next, previous string) string {
 //
 // Errors:
 //
-//	When the files cannot be fetched or the .env cannot be read.
+//	When the files cannot be fetched, the .env cannot be read, or the database cannot be
+//	asked which users it has on mysql_native_password (a move to a MySQL without it).
 func Prepare(ctx context.Context, st *state.State, to string) (*Prep, error) {
 	if st.Role == RoleRunner {
 		return nil, nil
@@ -187,7 +195,7 @@ func Prepare(ctx context.Context, st *state.State, to string) (*Prep, error) {
 		return nil, err
 	}
 	defer os.RemoveAll(tmp)
-	files := func(rel string) bool { return rel == ".env" || rel == "data/seed.yaml" }
+	files := func(rel string) bool { return rel == ".env" || rel == "data/seed.yaml" || rel == "docker-compose.yml" }
 	next := filepath.Join(tmp, "next")
 	if _, _, err := Fetch(ctx, to, next, files, false); err != nil {
 		return nil, err
@@ -213,7 +221,33 @@ func Prepare(ctx context.Context, st *state.State, to string) (*Prep, error) {
 	}
 	p.Seed = string(nextSeed)
 	p.SeedAction = seedAction(string(current), p.Seed, previous)
+
+	// a database moved to a MySQL without mysql_native_password: its users asked now, while
+	// nothing has changed (mysql.go)
+	nextCompose, _ := os.ReadFile(filepath.Join(next, "docker-compose.yml"))
+	if err := prepareMySQL(ctx, st, p, currentCompose(st.Dir), string(nextCompose), string(old)); err != nil {
+		return nil, err
+	}
 	return p, nil
+}
+
+// currentCompose is the compose file an installation runs from: the first of the names compose
+// looks for (a project taken over may still have compose.yaml, renamed only by the upgrade).
+//
+// Args:
+//
+//	dir: the installation folder.
+//
+// Returns:
+//
+//	Its content, "" when there is none.
+func currentCompose(dir string) string {
+	for _, name := range composeNames[:4] {
+		if data, err := os.ReadFile(filepath.Join(dir, name)); err == nil {
+			return string(data)
+		}
+	}
+	return ""
 }
 
 // Describe is what the review before an upgrade says of the changes: the keys added (names
@@ -241,19 +275,30 @@ func (p *Prep) Describe(to string) []string {
 	case "custom":
 		out = append(out, i18n.T("compose.seedCustom", "file", "data/"+seedNewName(to)))
 	}
+	if p.MySQLTo != "" {
+		out = append(out, i18n.T("compose.mysqlMove", "from", p.MySQLFrom, "to", p.MySQLTo))
+	}
 	return out
 }
 
-// Check stops an upgrade whose .env lacks database settings, before anything changes.
+// Check stops an upgrade whose .env lacks database settings, or whose database has users on
+// mysql_native_password the move to a MySQL without it cannot take along, before anything
+// changes.
 //
 // Errors:
 //
-//	Which keys are missing and what to do.
+//	Which keys are missing or which users stop it, and what to do.
 func (p *Prep) Check() error {
-	if p == nil || len(p.Blocked) == 0 {
+	if p == nil {
 		return nil
 	}
-	return errors.New(i18n.T("compose.envBlocked", "keys", strings.Join(p.Blocked, ", ")))
+	if len(p.Blocked) > 0 {
+		return errors.New(i18n.T("compose.envBlocked", "keys", strings.Join(p.Blocked, ", ")))
+	}
+	if p.MySQLBlocked != "" {
+		return errors.New(p.MySQLBlocked)
+	}
+	return nil
 }
 
 // seedNewName is the name the new version's seed is saved under beside one changed by hand.
@@ -317,7 +362,8 @@ func applyPrep(st *state.State, p *Prep, to string, undo *Undo) error {
 	return nil
 }
 
-// restorePrep puts back the .env and the seed an upgrade changed (Rollback).
+// restorePrep puts back the .env, the seed and the database's my.cnf an upgrade changed
+// (Rollback).
 //
 // Args:
 //
@@ -335,6 +381,16 @@ func restorePrep(st *state.State, undo *Undo) error {
 	}
 	if undo.Seed != "" {
 		if err := os.WriteFile(filepath.Join(st.Dir, "data", "seed.yaml"), []byte(undo.Seed), 0o644); err != nil {
+			return err
+		}
+	}
+	if undo.MyCnf != "" {
+		path := filepath.Join(st.Dir, filepath.FromSlash(myCnfPath))
+		mode := os.FileMode(0o644)
+		if info, err := os.Stat(path); err == nil {
+			mode = info.Mode().Perm()
+		}
+		if err := os.WriteFile(path, []byte(undo.MyCnf), mode); err != nil {
 			return err
 		}
 	}

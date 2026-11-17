@@ -140,13 +140,21 @@ func repoComposeName(dir string) error {
 // ─── upgrade ──────────────────────────────────────────────────────────────────
 
 // Undo is what a failed upgrade needs to go back: the version, compose file and dump before,
-// and the .env and seed before the new version's keys and seed were written ("" : unchanged).
+// and the .env, seed and database my.cnf before the new version's keys and seed were written
+// and mysql_native_password left my.cnf ("" : unchanged).
 type Undo struct {
 	Version string
 	Compose string
 	Dump    string
 	Env     string
 	Seed    string
+	MyCnf   string
+	// MySQLData is the database's data folder when the upgrade moves it to a newer MySQL line
+	// (mysql.go), MySQLTo that MySQL's version, Started set once the new containers were
+	// started: the new MySQL may have upgraded the data, which the old one cannot start on.
+	MySQLData string
+	MySQLTo   string
+	Started   bool
 }
 
 // Upgrade moves an installation to another version: a backup first (a controller), the new
@@ -193,12 +201,25 @@ func Upgrade(ctx context.Context, st *state.State, to string, prep *Prep) (*Undo
 		if err := prep.Check(); err != nil {
 			return nil, err
 		}
+		// a database user put on mysql_native_password since the review stops it here too,
+		// before the backup: nothing to roll back
+		if err := checkMySQL(ctx, st, prep); err != nil {
+			return nil, err
+		}
 		dump, err := Backup(ctx, st)
 		if err != nil {
 			return nil, err
 		}
 		undo.Dump = dump
 		ui.Done(i18n.T("compose.backedUp", "file", dump))
+		// a database moved to a MySQL without mysql_native_password: its users and its my.cnf
+		// made ready while the current MySQL still runs (mysql.go)
+		if err := moveMySQL(ctx, st, prep, undo); err != nil {
+			return undo, err
+		}
+		if prep.MySQLTo != "" {
+			undo.MySQLData, undo.MySQLTo = mysqlDataDir(undo.Compose, st.Dir), prep.MySQLTo
+		}
 		ui.Step(i18n.T("compose.fetching"))
 		// the new compose file, and the data files the new version brings (a new playbook);
 		// the files the installation has are kept as they are
@@ -228,6 +249,7 @@ func Upgrade(ctx context.Context, st *state.State, to string, prep *Prep) (*Undo
 		return undo, err
 	}
 	ui.Step(i18n.T("compose.starting"))
+	undo.Started = true
 	if err := runCompose(ctx, st, "up", "-d"); err != nil {
 		return undo, err
 	}
@@ -250,8 +272,10 @@ func Upgrade(ctx context.Context, st *state.State, to string, prep *Prep) (*Undo
 	return undo, st.Save()
 }
 
-// Rollback goes back to the version before a failed upgrade: its compose file, .env and seed,
-// and for a controller its database as the backup holds it (a new version may have changed the schema).
+// Rollback goes back to the version before a failed upgrade: its compose file, .env, seed and
+// my.cnf, and for a controller its database as the backup holds it (a new version may have
+// changed the schema). After a move to a newer MySQL line, its data folder is moved aside
+// first, and the old MySQL starts on a new one.
 //
 // Args:
 //
@@ -274,6 +298,18 @@ func Rollback(ctx context.Context, st *state.State, undo *Undo) error {
 		return err
 	}
 	if st.Role != RoleRunner && undo.Dump != "" {
+		// the newer MySQL may have upgraded the data, which the old one cannot start on: the
+		// data moved aside, the old MySQL starts on a new folder and the backup is loaded in it
+		if undo.MySQLData != "" && undo.Started {
+			if err := runCompose(ctx, st, "stop", "mysqldb"); err != nil {
+				return err
+			}
+			aside, err := moveDataAside(ctx, system.Runtime(st.Runtime), undo.MySQLData, undo.MySQLTo)
+			if err != nil {
+				return err
+			}
+			ui.Warn(i18n.T("compose.mysqlAside", "version", undo.MySQLTo, "dir", aside))
+		}
 		if err := runCompose(ctx, st, "up", "-d", "mysqldb"); err != nil {
 			return err
 		}

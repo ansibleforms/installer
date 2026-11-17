@@ -384,5 +384,11 @@
   "compose.seedReplaced": "data/seed.yaml 会被新版本的替换：应用现在用凭据主动连接其本地 RTE（inbound）。\n旧的 seed 会保存在旁边。",
   "compose.seedCustom": "data/seed.yaml 被手动修改过，因此保留不变。新版本的保存为 {file}。\n请合并两者（本地 RTE 现在需要 rte_mode: inbound 和一个凭据），否则 playbook 可能无法运行。",
   "compose.envWriting": "正在向 .env 添加：{keys}",
-  "compose.seedWriting": "正在用新版本的替换 data/seed.yaml"
+  "compose.seedWriting": "正在用新版本的替换 data/seed.yaml",
+  "compose.mysqlMove": "数据库将从 MySQL {from} 迁移到 {to}，后者已不再提供 mysql_native_password。\n仍在使用它的数据库用户会用 .env 中的密码改为 caching_sha2_password，其配置行会从 data/mysql/my.cnf 中删除（旧文件保存在旁边）。",
+  "compose.mysqlBlocked": "MySQL {to} 已不再提供 mysql_native_password，而以下数据库用户仍在用它登录：{users}。\n安装程序只知道 root 和应用用户的密码。请以数据库的 root 身份，用各自的密码把其他用户改为 caching_sha2_password：\n\n{exec}\n{commands}\n\n然后再次升级。未做任何更改。",
+  "compose.mysqlPasswordHolder": "<密码>",
+  "compose.mysqlUsers": "正在把数据库用户改为 caching_sha2_password：{users}",
+  "compose.mysqlCnf": "正在从 data/mysql/my.cnf 中删除 mysql_native_password",
+  "compose.mysqlAside": "MySQL {version} 的数据保留在 {dir}：之前的 MySQL 使用新文件夹启动，并将备份载入其中。"
 }

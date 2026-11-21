@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 7.7.0
+
+AnsibleForms 7.7.0.
+
+### Changed
+
+- **Defaults to AnsibleForms 7.7.0**: `install` and `upgrade` go to it unless `--version` says
+  otherwise. See the [7.7.0 release notes](https://github.com/ansibleforms/ansibleforms/releases/tag/7.7.0).
+
 ### Added
 
 - **Upgrades move the database from MySQL 8.4 to 9.7 LTS safely**: root and the app's user move

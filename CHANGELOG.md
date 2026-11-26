@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 7.8.0
+
+AnsibleForms 7.8.0.
+
+### Changed
+
+- **Defaults to AnsibleForms 7.8.0**: `install` and `upgrade` go to it unless `--version` says
+  otherwise. See the [7.8.0 release notes](https://github.com/ansibleforms/ansibleforms/releases/tag/7.8.0).
+
 ### Fixed
 
 - **Commands run without a terminal no longer stop at the language question**: under cron,

@@ -19,6 +19,13 @@ const AppRepo = "ansibleforms/ansibleforms"
 // a short client : GitHub answers fast or not at all
 var client = &http.Client{Timeout: 30 * time.Second}
 
+// apiBase and rawBase are GitHub's API and the address of its raw files; the tests point
+// them at a server of their own.
+var (
+	apiBase = "https://api.github.com"
+	rawBase = "https://raw.githubusercontent.com"
+)
+
 // get fetches a URL, with the GitHub token when one is set (GITHUB_TOKEN, GH_TOKEN), so a
 // server behind a shared address does not run into the anonymous rate limit.
 //
@@ -75,7 +82,7 @@ func get(ctx context.Context, url string) ([]byte, error) {
 //
 //	When GitHub cannot be reached.
 func ListAppVersions(ctx context.Context) ([]Version, error) {
-	body, err := get(ctx, "https://api.github.com/repos/"+AppRepo+"/releases?per_page=100")
+	body, err := get(ctx, apiBase+"/repos/"+AppRepo+"/releases?per_page=100")
 	if err != nil {
 		return nil, fmt.Errorf("listing the AnsibleForms releases: %w", err)
 	}
@@ -116,7 +123,7 @@ func ListAppVersions(ctx context.Context) ([]Version, error) {
 //
 //	When the file cannot be fetched.
 func FetchChangelog(ctx context.Context, v Version) ([]Entry, error) {
-	body, err := get(ctx, "https://raw.githubusercontent.com/"+AppRepo+"/"+v.String()+"/CHANGELOG.md")
+	body, err := get(ctx, rawBase+"/"+AppRepo+"/"+v.String()+"/CHANGELOG.md")
 	if err != nil {
 		return nil, fmt.Errorf("fetching the release notes of %s: %w", v, err)
 	}

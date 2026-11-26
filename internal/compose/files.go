@@ -52,7 +52,7 @@ func download(ctx context.Context, version string) (io.ReadCloser, string, error
 	refs := []string{"refs/tags/v" + version, "refs/heads/main"}
 	var last error
 	for _, ref := range refs {
-		url := "https://codeload.github.com/" + DockerRepo + "/tar.gz/" + ref
+		url := Codeload + DockerRepo + "/tar.gz/" + ref
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return nil, "", err
@@ -148,11 +148,12 @@ func Fetch(ctx context.Context, version, dir string, only func(string) bool, kee
 			if err != nil {
 				return "", nil, err
 			}
-			if _, err := io.Copy(f, tr); err != nil { //nolint:gosec // the repository's own small files
-				f.Close()
-				return "", nil, err
+			// the copy's error first, else the close's (a write the disk refused late)
+			_, err = io.Copy(f, tr) //nolint:gosec // the repository's own small files
+			if cerr := f.Close(); err == nil {
+				err = cerr
 			}
-			if err := f.Close(); err != nil {
+			if err != nil {
 				return "", nil, err
 			}
 			written = append(written, rel)
@@ -413,14 +414,18 @@ func Secret(n int) string {
 	b := make([]byte, n)
 	max := big.NewInt(int64(len(secretChars)))
 	for i := range b {
-		k, err := rand.Int(rand.Reader, max)
-		if err != nil {
-			panic(err) // the system's random source is gone : nothing safe can be made
-		}
+		// crypto/rand never fails (Go 1.24 on: a broken source stops the program)
+		k, _ := rand.Int(rand.Reader, max)
 		b[i] = secretChars[k.Int64()]
 	}
 	return string(b)
 }
+
+// hostname and interfaceAddrs say this server's name and addresses; the tests give their own.
+var (
+	hostname       = os.Hostname
+	interfaceAddrs = net.InterfaceAddrs
+)
 
 // SelfSigned writes a self-signed certificate of this server (its host name, localhost and
 // its addresses), valid ten years, where the app reads its certificate by default.
@@ -434,13 +439,13 @@ func Secret(n int) string {
 //
 //	When the files cannot be written.
 func SelfSigned(certFile, keyFile string) error {
-	host, _ := os.Hostname()
+	host, _ := hostname()
 	if host == "" {
 		host = "localhost"
 	}
 	dns := []string{host, "localhost"}
 	ips := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
-	if addrs, err := net.InterfaceAddrs(); err == nil {
+	if addrs, err := interfaceAddrs(); err == nil {
 		for _, a := range addrs {
 			if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() && !ipn.IP.IsLinkLocalUnicast() {
 				ips = append(ips, ipn.IP)
@@ -525,10 +530,9 @@ func CertFingerprint(der []byte) string {
 //
 //	When the key or the certificate cannot be made, or the files cannot be written.
 func writeCertificate(certFile, keyFile, cn string, dns []string, ips []net.IP) ([]byte, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, err
-	}
+	// a P-256 key from crypto/rand, a template of its own signed with it and the key written
+	// as DER cannot fail: only the files can
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 120))
 	tpl := &x509.Certificate{
 		SerialNumber:          serial,
@@ -541,14 +545,8 @@ func writeCertificate(certFile, keyFile, cn string, dns []string, ips []net.IP) 
 		DNSNames:              dns,
 		IPAddresses:           ips,
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
-	if err != nil {
-		return nil, err
-	}
-	keyDer, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		return nil, err
-	}
+	der, _ := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
+	keyDer, _ := x509.MarshalECPrivateKey(key)
 	if err := os.MkdirAll(filepath.Dir(certFile), 0o755); err != nil {
 		return nil, err
 	}

@@ -35,3 +35,53 @@ func TestCatalogsComplete(t *testing.T) {
 		}
 	}
 }
+
+// TestSetAndT checks a language set only when it is one, a text in it, the fallback for a
+// key it lacks, the key itself for one no catalogue has, and the placeholders filled.
+func TestSetAndT(t *testing.T) {
+	defer Set(Fallback)
+	Set("xx")
+	if Current() != Fallback || Supported("xx") {
+		t.Error("an unknown language was set")
+	}
+	Set("de")
+	if Current() != "de" {
+		t.Errorf("current %s", Current())
+	}
+	if T("usage.title") == "usage.title" || T("usage.title") == load(Fallback)["usage.title"] {
+		t.Errorf("de usage.title %q", T("usage.title"))
+	}
+	catalogs["de"]["only.en"] = ""
+	catalogs[Fallback]["only.en"] = "Hello {name}, {n} times"
+	if got := T("only.en", "name", "Ada", "n", 3, "odd"); got != "Hello Ada, 3 times" {
+		t.Errorf("fallback %q", got)
+	}
+	if T("no.such.key") != "no.such.key" {
+		t.Error("an unknown key")
+	}
+	if len(load("xx")) != 0 {
+		t.Error("an unknown catalogue")
+	}
+}
+
+// TestFromEnv checks the language read from the locale variables, the first one set.
+func TestFromEnv(t *testing.T) {
+	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"} {
+		t.Setenv(k, "")
+	}
+	if FromEnv() != "" {
+		t.Error("nothing set")
+	}
+	t.Setenv("LANGUAGE", "zh_CN:en")
+	if FromEnv() != "zh" {
+		t.Errorf("LANGUAGE %q", FromEnv())
+	}
+	t.Setenv("LANG", "pt_BR.UTF-8")
+	if FromEnv() != "pt" {
+		t.Errorf("LANG %q", FromEnv())
+	}
+	t.Setenv("LC_ALL", "C.UTF-8")
+	if FromEnv() != "" {
+		t.Errorf("LC_ALL=C %q", FromEnv())
+	}
+}

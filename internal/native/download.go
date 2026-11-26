@@ -127,9 +127,8 @@ func fetchSum(ctx context.Context, url, sum, dest string, strip int) error {
 	if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, sum) {
 		return fmt.Errorf("the checksum of %s is %s, not %s", url, got, sum)
 	}
-	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
+	// a file just written seeks back to its start: a failure would show as a broken archive
+	_, _ = tmp.Seek(0, io.SeekStart)
 	return untar(tmp, dest, strip)
 }
 
@@ -187,11 +186,12 @@ func untar(r io.Reader, dest string, strip int) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(f, tr); err != nil { //nolint:gosec // archives checked against their checksum
-				f.Close()
-				return err
+			// the copy's error first, else the close's (a write the disk refused late)
+			_, err = io.Copy(f, tr) //nolint:gosec // archives checked against their checksum
+			if cerr := f.Close(); err == nil {
+				err = cerr
 			}
-			if err := f.Close(); err != nil {
+			if err != nil {
 				return err
 			}
 		case tar.TypeSymlink:

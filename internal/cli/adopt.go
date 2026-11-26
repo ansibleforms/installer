@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	"github.com/ansibleforms/installer/internal/compose"
 	"github.com/ansibleforms/installer/internal/detect"
 	"github.com/ansibleforms/installer/internal/i18n"
-	"github.com/ansibleforms/installer/internal/kube"
 	"github.com/ansibleforms/installer/internal/releases"
 	"github.com/ansibleforms/installer/internal/state"
 	"github.com/ansibleforms/installer/internal/ui"
@@ -32,7 +30,7 @@ import (
 //	What was found.
 func findInstalls(ctx context.Context) []detect.Install {
 	ui.Step(i18n.T("detect.looking"))
-	return detect.Find(ctx)
+	return detectFind(ctx)
 }
 
 // describe is one line about an installation found: its engine, role, version and place.
@@ -83,7 +81,7 @@ func reason(i detect.Install) string {
 		// an RTE tells its version only with its token
 		key = "detect.why_unmanagedRunner"
 	}
-	if i.Problem == detect.NoComposeFile && os.Geteuid() == 0 {
+	if i.Problem == detect.NoComposeFile && systemIsRoot() {
 		// root may read any file : what stops it is the file's own (a mode, an SELinux label)
 		key = "detect.why_noComposeFileRoot"
 	}
@@ -363,7 +361,7 @@ func adopt(ctx context.Context, i detect.Install, ask bool) (*state.State, error
 		ui.Muted(help)
 	}
 	if st.Mode == state.Kubernetes {
-		if err := kube.Adopt(ctx, st); err != nil {
+		if err := kubeAdopt(ctx, st); err != nil {
 			return nil, err
 		}
 	}
@@ -387,7 +385,7 @@ func adopt(ctx context.Context, i detect.Install, ask bool) (*state.State, error
 //	How many were listed.
 func statusFound(ctx context.Context, st *state.State) int {
 	var others []detect.Install
-	for _, i := range detect.Find(ctx) {
+	for _, i := range detectFind(ctx) {
 		if !i.Manages(st) {
 			others = append(others, i)
 		}

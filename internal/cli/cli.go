@@ -10,8 +10,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ansibleforms/installer/internal/compose"
+	"github.com/ansibleforms/installer/internal/detect"
+	"github.com/ansibleforms/installer/internal/health"
 	"github.com/ansibleforms/installer/internal/i18n"
+	"github.com/ansibleforms/installer/internal/kube"
+	"github.com/ansibleforms/installer/internal/native"
 	"github.com/ansibleforms/installer/internal/releases"
+	"github.com/ansibleforms/installer/internal/system"
 	"github.com/ansibleforms/installer/internal/ui"
 )
 
@@ -33,6 +39,50 @@ type Flags struct {
 	IngressClass, StorageClass, Values string
 	Purge, Yes                         bool
 }
+
+// ─── what the tests replace ───────────────────────────────────────────────────
+
+// The actions on the server the commands call: installing, upgrading, backing up, looking
+// at and removing AnsibleForms, finding it, the container tools, the releases on GitHub and
+// the app's answer. The tests give their own; the commands work the same.
+var (
+	composeInstall           = compose.Install
+	composeUpgrade           = compose.Upgrade
+	composeRollback          = compose.Rollback
+	composeBackup            = compose.Backup
+	composeStatus            = compose.Status
+	composeUninstall         = compose.Uninstall
+	composePrepare           = compose.Prepare
+	composeMigrateRunner     = compose.MigrateRunner
+	composeRollbackMigration = compose.RollbackMigration
+	composeOutboundIP        = compose.OutboundIP
+	nativeInstall            = native.Install
+	nativeUpgrade            = native.Upgrade
+	nativeRollback           = native.Rollback
+	nativeBackup             = native.Backup
+	nativeStatus             = native.Status
+	nativeUninstall          = native.Uninstall
+	nativeSupported          = native.Supported
+	kubeInstall              = kube.Install
+	kubeAdopt                = kube.Adopt
+	kubeUpgrade              = kube.Upgrade
+	kubeRollback             = kube.Rollback
+	kubeBackup               = kube.Backup
+	kubeStatus               = kube.Status
+	kubeUninstall            = kube.Uninstall
+	kubeIngressClasses       = kube.IngressClasses
+	kubeStorageClasses       = kube.StorageClasses
+	systemDetect             = system.Detect
+	systemInstallDocker      = system.InstallDocker
+	systemInstallPodman      = system.InstallPodman
+	systemIsRoot             = system.IsRoot
+	detectFind               = detect.Find
+	detectFindDatabaseRunner = detect.FindDatabaseRunner
+	releasesListAppVersions  = releases.ListAppVersions
+	releasesFetchChangelog   = releases.FetchChangelog
+	healthAppVersion         = health.AppVersion
+	healthAppVersionInsecure = health.AppVersionInsecure
+)
 
 // Run runs a command.
 //
@@ -147,7 +197,7 @@ func targetVersion(ctx context.Context, f Flags) (releases.Version, error) {
 	if v, err := releases.ParseVersion(f.InstallerVersion); err == nil {
 		return v, nil
 	}
-	list, err := releases.ListAppVersions(ctx)
+	list, err := releasesListAppVersions(ctx)
 	if err != nil {
 		return releases.Version{}, err
 	}

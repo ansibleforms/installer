@@ -10,10 +10,8 @@ import (
 	"strings"
 
 	"github.com/ansibleforms/installer/internal/compose"
-	"github.com/ansibleforms/installer/internal/health"
 	"github.com/ansibleforms/installer/internal/i18n"
 	"github.com/ansibleforms/installer/internal/kube"
-	"github.com/ansibleforms/installer/internal/native"
 	"github.com/ansibleforms/installer/internal/releases"
 	"github.com/ansibleforms/installer/internal/state"
 	"github.com/ansibleforms/installer/internal/system"
@@ -180,7 +178,8 @@ func install(ctx context.Context, f Flags) error {
 	// the server's tools looked at in the background from the start, while the release notes
 	// and the role are read, so the engine step has them without a screen of its own
 	toolsReady := make(chan system.Tools, 1)
-	go func() { toolsReady <- system.Detect(ctx) }()
+	detectTools := systemDetect
+	go func() { toolsReady <- detectTools(ctx) }()
 	detected := false
 
 	controller := func() bool { return p.role == compose.RoleController }
@@ -225,7 +224,7 @@ func install(ctx context.Context, f Flags) error {
 				return nil
 			}
 			if f.Mode == string(state.Native) {
-				if why := native.Supported(); why != "" {
+				if why := nativeSupported(); why != "" {
 					return errors.New(i18n.T("native.cannot_" + why))
 				}
 				p.mode = f.Mode
@@ -265,7 +264,7 @@ func install(ctx context.Context, f Flags) error {
 			if runner() {
 				def = "/opt/ansibleforms-runner"
 			}
-			if !system.IsRoot() {
+			if !systemIsRoot() {
 				home, _ := os.UserHomeDir()
 				def = filepath.Join(home, filepath.Base(def))
 			}
@@ -333,7 +332,7 @@ func install(ctx context.Context, f Flags) error {
 			return nil
 		}},
 		{label: "network", skip: func() bool { return !runner() || p.runnerMode != "inbound" || kubeRunner() }, ask: func() error {
-			def := orStr(p.host, orStr(f.Host, compose.OutboundIP()))
+			def := orStr(p.host, orStr(f.Host, composeOutboundIP()))
 			ui.Explain(i18n.T("runner.addressHelp"))
 			h, err := textAgain(f.Host, i18n.T("runner.address"), def, notEmpty)
 			p.host = h
@@ -407,7 +406,7 @@ func install(ctx context.Context, f Flags) error {
 			return err
 		}},
 		{label: "ingress", skip: func() bool { return !kubernetes() }, ask: func() error {
-			c, err := choice(f.IngressClass, i18n.T("kube.ingressClass"), kube.IngressClasses(ctx), orStr(p.ingressClass, "nginx"))
+			c, err := choice(f.IngressClass, i18n.T("kube.ingressClass"), kubeIngressClasses(ctx), orStr(p.ingressClass, "nginx"))
 			p.ingressClass = c
 			return err
 		}},
@@ -420,7 +419,7 @@ func install(ctx context.Context, f Flags) error {
 			return err
 		}},
 		{label: "storage", skip: func() bool { return !onKube() }, ask: func() error {
-			s, err := choice(f.StorageClass, i18n.T("kube.storageClass"), append([]string{""}, kube.StorageClasses(ctx)...), p.storageClass)
+			s, err := choice(f.StorageClass, i18n.T("kube.storageClass"), append([]string{""}, kubeStorageClasses(ctx)...), p.storageClass)
 			p.storageClass = s
 			return err
 		}},
@@ -476,7 +475,7 @@ var notesCache = map[string][]releases.Entry{}
 func versionNotes(ctx context.Context, v releases.Version) error {
 	entries, ok := notesCache[v.String()]
 	if !ok {
-		all, err := releases.FetchChangelog(ctx, v)
+		all, err := releasesFetchChangelog(ctx, v)
 		if err != nil {
 			ui.Warn(i18n.T("install.notesUnavailable", "version", v.String()))
 			notesCache[v.String()] = nil
@@ -604,7 +603,7 @@ func askApp(ctx context.Context, f Flags, p *plan) error {
 func reachApp(ctx context.Context, f Flags, p *plan) error {
 	p.appURL = strings.TrimRight(p.appURL, "/")
 	ui.Step(i18n.T("runner.checkingApp", "url", p.appURL))
-	v, trusted, err := health.AppVersion(ctx, p.appURL)
+	v, trusted, err := healthAppVersion(ctx, p.appURL)
 	if err != nil && !trusted {
 		// why it asks : under the question in the full screen, a line before it otherwise
 		if ui.Fullscreen {
@@ -620,7 +619,7 @@ func reachApp(ctx context.Context, f Flags, p *plan) error {
 			return errors.New(i18n.T("runner.certRefused"))
 		}
 		p.trust = true
-		v, _, err = health.AppVersionInsecure(ctx, p.appURL)
+		v, _, err = healthAppVersionInsecure(ctx, p.appURL)
 	}
 	if err != nil {
 		return errors.New(i18n.T("runner.appUnreachable", "url", p.appURL, "error", err))
@@ -654,9 +653,9 @@ func reachApp(ctx context.Context, f Flags, p *plan) error {
 func doController(ctx context.Context, p *plan) error {
 	o := compose.Options{Role: compose.RoleController, Runtime: p.runtime, Version: p.version.String(), Dir: p.dir, Name: p.name,
 		Port: p.port, TLS: p.tls, CertFile: p.cert, KeyFile: p.key, AdminPassword: p.admin}
-	install := compose.Install
+	install := composeInstall
 	if p.mode == string(state.Native) {
-		install = native.Install
+		install = nativeInstall
 	}
 	st, res, err := install(ctx, o)
 	if err != nil {
@@ -702,9 +701,9 @@ func doRunner(ctx context.Context, p *plan) error {
 		r.Address = compose.InboundAddress(p.host, p.port)
 	}
 	o := compose.Options{Role: compose.RoleRunner, Runtime: p.runtime, Version: p.version.String(), Dir: p.dir, Name: p.name, Port: p.port, Runner: r}
-	install := compose.Install
+	install := composeInstall
 	if p.mode == string(state.Native) {
-		install = native.Install
+		install = nativeInstall
 	}
 	st, res, err := install(ctx, o)
 	if err != nil {
@@ -750,7 +749,7 @@ func doRunner(ctx context.Context, p *plan) error {
 //
 //	When helm fails.
 func doKube(ctx context.Context, f Flags, p *plan) error {
-	st, err := kube.Install(ctx, kube.Options{Version: p.version.String(), Namespace: p.namespace, Release: p.release,
+	st, err := kubeInstall(ctx, kube.Options{Version: p.version.String(), Namespace: p.namespace, Release: p.release,
 		Hostname: p.hostname, IngressClass: p.ingressClass, TLS: p.kubeTLS, StorageClass: p.storageClass, ExtraValues: f.Values})
 	if err != nil {
 		return err
@@ -786,7 +785,7 @@ func doKubeRunner(ctx context.Context, f Flags, p *plan) error {
 		}
 		r.JoinToken = token
 	}
-	st, err := kube.Install(ctx, kube.Options{Version: p.version.String(), Namespace: p.namespace, Release: p.release,
+	st, err := kubeInstall(ctx, kube.Options{Version: p.version.String(), Namespace: p.namespace, Release: p.release,
 		StorageClass: p.storageClass, ExtraValues: f.Values, Runner: r})
 	if err != nil {
 		return err
@@ -856,7 +855,7 @@ func chooseEngine(ctx context.Context, f Flags, tools system.Tools, prev string,
 		if runner {
 			hint = "install.modeNativeRunnerHint"
 		}
-		if why := native.Supported(); why != "" {
+		if why := nativeSupported(); why != "" {
 			return ui.Option{Label: i18n.T("install.modeNative_" + why), Value: string(state.Native), Disabled: true}
 		}
 		return ui.Option{Label: i18n.T("install.modeNative"), Value: string(state.Native), Hint: i18n.T(hint)}
@@ -929,9 +928,9 @@ func installRuntime(ctx context.Context, f Flags, r system.Runtime) error {
 	}
 	ui.Step(i18n.T("install.installingRuntime", "runtime", i18n.T("runtime."+string(r))))
 	if r == system.Podman {
-		return system.InstallPodman(ctx)
+		return systemInstallPodman(ctx)
 	}
-	return system.InstallDocker(ctx)
+	return systemInstallDocker(ctx)
 }
 
 // ─── small helpers ────────────────────────────────────────────────────────────

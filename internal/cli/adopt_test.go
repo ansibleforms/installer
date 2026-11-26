@@ -10,6 +10,7 @@ import (
 	"github.com/ansibleforms/installer/internal/detect"
 	"github.com/ansibleforms/installer/internal/releases"
 	"github.com/ansibleforms/installer/internal/state"
+	"github.com/ansibleforms/installer/internal/tui"
 	"github.com/ansibleforms/installer/internal/ui"
 )
 
@@ -110,5 +111,142 @@ func TestReasonNamesTheFile(t *testing.T) {
 	}
 	if os.Geteuid() == 0 && strings.Contains(r, "as root or") {
 		t.Errorf("root told to run as root: %s", r)
+	}
+}
+
+// ─── what was found, answered ─────────────────────────────────────────────────
+
+// found are installations of every kind, adoptable or not.
+var (
+	kubeFound     = detect.Install{Engine: detect.Kubernetes, Role: detect.RoleController, Version: "7.3.0", Running: true, Namespace: "forms", Release: "af"}
+	nativeFound   = detect.Install{Engine: detect.Systemd, Role: detect.RoleController, Version: "7.2.0", Dir: "/opt/af", Name: "af", Port: 8443, Units: []string{"af.service"}}
+	runnerFound   = detect.Install{Engine: detect.Podman, Role: detect.RoleRunner, Version: "7.2.0", Dir: "/opt/r", Name: "r", Project: "r", Running: false}
+	dbRunnerFound = detect.Install{Engine: detect.Docker, Role: detect.RoleRunner, Version: "7.2.0", Dir: "/opt/rte", Name: "af", Project: "rte", Database: &detect.DatabaseRunner{RunnerName: "rte72"}}
+	portFound     = detect.Install{Engine: detect.None, Role: detect.RoleRunner, Port: 8000, Problem: detect.Unmanaged}
+	noFileFound   = detect.Install{Engine: detect.Docker, Role: detect.RoleController, Dir: "/srv/x", Problem: detect.NoComposeFile, ProblemFile: "/srv/x/compose.yml"}
+	argoFound     = detect.Install{Engine: detect.Kubernetes, Role: detect.RoleController, Namespace: "lab", Release: "lab", Problem: detect.ArgoCD, ArgoApp: "lab-forms"}
+	noFileFound2  = detect.Install{Engine: detect.Docker, Role: detect.RoleController, Dir: "/srv/y", Problem: detect.NoComposeFile}
+)
+
+// TestFoundTexts checks the lines and the advice of each kind of installation found, as root
+// or not.
+func TestFoundTexts(t *testing.T) {
+	fakeServer(t)
+	all := []detect.Install{handMade, kubeFound, nativeFound, runnerFound, dbRunnerFound, portFound, noFileFound, argoFound, noFileFound2}
+	list := foundList(all)
+	for _, want := range []string{"compose.yml", "lab-forms", "rte72"[:0]} {
+		if !strings.Contains(list, want) {
+			t.Errorf("no %q in %s", want, list)
+		}
+	}
+	if reason(handMade) != "" || reason(portFound) == "" {
+		t.Error("reason of one taken over, of a Runner on a port")
+	}
+	t.Setenv("AS_ROOT", "1")
+	if reason(noFileFound) == reason(noFileFound2) && reason(noFileFound) == "" {
+		t.Error("reason as root")
+	}
+	if current(dbRunnerFound, releases.Version{Major: 7, Minor: 2}) || current(handMade, releases.Version{}) || !current(kubeFound, releases.Version{Major: 7, Minor: 3}) {
+		t.Error("current")
+	}
+}
+
+// TestOfferFoundChoices checks the choices offered with what was found: taken over (each kind
+// reviewed), alongside confirmed or not, stop, back, abort ; one at the latest version ; and
+// unattended with several.
+func TestOfferFoundChoices(t *testing.T) {
+	ctx := context.Background()
+	choose, adoptQ, along := title("detect.choose"), title("detect.adoptConfirm"), title("detect.alongsideConfirm")
+	for name, c := range map[string]struct {
+		found     []detect.Install
+		alongside bool
+		answers   map[string][]tui.Answer
+		ok        bool
+		adopted   bool
+	}{
+		"compose":        {[]detect.Install{handMade, portFound}, true, map[string][]tui.Answer{choose: {back, pick("adopt:0")}}, true, true},
+		"kube":           {[]detect.Install{kubeFound}, false, nil, true, true},
+		"native":         {[]detect.Install{nativeFound}, false, nil, true, true},
+		"runner":         {[]detect.Install{runnerFound}, false, nil, true, true},
+		"database":       {[]detect.Install{dbRunnerFound}, false, nil, true, true},
+		"review back":    {[]detect.Install{handMade}, false, map[string][]tui.Answer{adoptQ: {no, abort}}, false, false},
+		"alongside":      {[]detect.Install{handMade}, true, map[string][]tui.Answer{choose: {pick("alongside"), pick("alongside")}, along: {no, yes}}, true, false},
+		"alongside back": {[]detect.Install{handMade}, true, map[string][]tui.Answer{choose: {pick("alongside"), pick("stop")}, along: {back}}, false, false},
+		"stop":           {[]detect.Install{handMade}, true, map[string][]tui.Answer{choose: {pick("stop")}}, false, false},
+		"abort":          {[]detect.Install{handMade}, true, map[string][]tui.Answer{choose: {abort}}, false, false},
+		"none adoptable": {[]detect.Install{argoFound}, true, map[string][]tui.Answer{choose: {pick("alongside")}, along: {yes}}, true, false},
+		"none to take":   {[]detect.Install{argoFound}, false, nil, false, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := fakeServer(t)
+			s.versions = []releases.Version{{Major: 7, Minor: 3}}
+			answering(t, c.answers)
+			st, err := offerFound(ctx, Flags{InstallerVersion: "dev"}, c.found, c.alongside)
+			if (err == nil) != c.ok || (st != nil) != c.adopted {
+				t.Errorf("%s: %+v, %v", name, st, err)
+			}
+		})
+	}
+	s := fakeServer(t)
+	s.fail["kubeAdopt"] = errors.New("helm failed")
+	answering(t, map[string][]tui.Answer{})
+	if _, err := offerFound(ctx, Flags{InstallerVersion: "7.3.0"}, []detect.Install{kubeFound}, false); err == nil {
+		t.Error("kube adopt failed")
+	}
+	s.fail = map[string]error{}
+	t.Setenv("XDG_CONFIG_HOME", "/dev/null/x")
+	if _, err := offerFound(ctx, Flags{InstallerVersion: "7.3.0"}, []detect.Install{handMade}, false); err == nil {
+		t.Error("state not saved")
+	}
+	unattended(t)
+	if _, err := offerFound(ctx, Flags{}, []detect.Install{handMade, nativeFound}, false); err == nil {
+		t.Error("unattended with two")
+	}
+}
+
+// TestStatusFound checks the installations not managed listed with the status, with advice,
+// and one that could be taken over when nothing is managed.
+func TestStatusFound(t *testing.T) {
+	ctx := context.Background()
+	s := fakeServer(t)
+	answering(t, map[string][]tui.Answer{})
+	s.found = []detect.Install{handMade, noFileFound}
+	if err := status(ctx); err != nil {
+		t.Error(err)
+	}
+	saved(state.Compose, "controller", "7.3.0")
+	if err := status(ctx); err != nil {
+		t.Error(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", "/dev/null/x")
+	if err := status(ctx); err == nil {
+		t.Error("a state that cannot be read")
+	}
+}
+
+// TestInstallFoundFirst checks an installation that finds AnsibleForms already: taken over,
+// then upgraded, or the choice aborted.
+func TestInstallFoundFirst(t *testing.T) {
+	ctx := context.Background()
+	s := fakeServer(t)
+	s.found = []detect.Install{handMade}
+	answering(t, map[string][]tui.Answer{title("detect.choose"): {abort}})
+	if err := install(ctx, Flags{InstallerVersion: "7.3.0", Lang: "en"}); err == nil {
+		t.Error("aborted")
+	}
+	answering(t, map[string][]tui.Answer{title("detect.choose"): {pick("adopt:0")}})
+	if err := install(ctx, Flags{InstallerVersion: "7.3.0", Lang: "en", Version: "7.3.0"}); err != nil {
+		t.Errorf("adopted then upgraded: %v", err)
+	}
+	_ = state.Remove()
+	answering(t, map[string][]tui.Answer{title("detect.choose"): {pick("alongside")}, title("detect.alongsideConfirm"): {yes}})
+	if err := install(ctx, Flags{InstallerVersion: "7.3.0", Lang: "en", Port: 443, TLS: "off", AdminPassword: "x"}); err != nil {
+		t.Errorf("alongside: %v", err)
+	}
+	_ = state.Remove()
+	s.found = []detect.Install{argoFound}
+	answering(t, map[string][]tui.Answer{})
+	if err := upgrade(ctx, Flags{Lang: "en"}); err == nil {
+		t.Error("upgrade with nothing to take over")
 	}
 }

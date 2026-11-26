@@ -970,7 +970,7 @@ func mysqlDataDir(content, dir string) string {
 //	When it cannot be moved.
 func moveDataAside(ctx context.Context, r system.Runtime, data, version string) (string, error) {
 	aside := fmt.Sprintf("%s.%s.%s", data, version, time.Now().Format("20060102-150405"))
-	if err := os.Rename(data, aside); err == nil || os.Geteuid() == 0 {
+	if err := os.Rename(data, aside); err == nil || geteuid() == 0 {
 		return aside, err
 	}
 	if r == system.Podman {

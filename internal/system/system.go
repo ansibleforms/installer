@@ -251,8 +251,12 @@ func Has(name string) bool {
 //
 //	True for uid 0.
 func IsRoot() bool {
-	return os.Geteuid() == 0
+	return Geteuid() == 0
 }
+
+// Geteuid tells the user the installer runs as; the tests (this package's and others')
+// pretend to be root or not.
+var Geteuid = os.Geteuid
 
 // ─── container tools ──────────────────────────────────────────────────────────
 
@@ -341,6 +345,9 @@ type OSRelease struct {
 	Name   string
 }
 
+// OSReleasePath is where the distribution describes itself; the tests write their own.
+var OSReleasePath = "/etc/os-release"
+
 // ReadOSRelease reads /etc/os-release.
 //
 // Returns:
@@ -348,7 +355,7 @@ type OSRelease struct {
 //	The distribution; empty fields when the file is missing.
 func ReadOSRelease() OSRelease {
 	var r OSRelease
-	data, err := os.ReadFile("/etc/os-release")
+	data, err := os.ReadFile(OSReleasePath)
 	if err != nil {
 		return r
 	}
@@ -514,9 +521,12 @@ func InstallPackages(ctx context.Context, p Packages) error {
 //
 //	"amd64", "arm64", or "" for another one.
 func Arch() string {
-	switch runtime.GOARCH {
+	switch GOARCH {
 	case "amd64", "arm64":
-		return runtime.GOARCH
+		return GOARCH
 	}
 	return ""
 }
+
+// GOARCH is the architecture the installer was built for; the tests try others.
+var GOARCH = runtime.GOARCH

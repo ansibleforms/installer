@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -220,4 +221,107 @@ func TestApplyCustomSeed(t *testing.T) {
 	if next, _ := os.ReadFile(filepath.Join(st.Dir, "data", "seed.yaml.7.3.0.new")); string(next) != read(t, "seed-7.3.yaml") {
 		t.Errorf("new seed not saved beside it")
 	}
+}
+
+// TestPrepareFails checks a Runner (nothing to prepare), a .env that is not there, no
+// temporary folder, a repository that cannot be fetched or has no .env, and a database that
+// cannot be asked.
+func TestPrepareFails(t *testing.T) {
+	ctx := context.Background()
+	if p, err := Prepare(ctx, &state.State{Role: RoleRunner}, "7.3.0"); p != nil || err != nil {
+		t.Errorf("runner: %v, %v", p, err)
+	}
+	st := upgradeFixture(t, read(t, "seed-7.2.yaml"))
+	for name, setup := range map[string]func(t *testing.T){
+		"no .env":     func(t *testing.T) { _ = os.Rename(filepath.Join(st.Dir, ".env"), filepath.Join(st.Dir, ".env.x")) },
+		"no tmp":      func(t *testing.T) { t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "none")) },
+		"no repo":     func(t *testing.T) { Source = filepath.Join(t.TempDir(), "none") },
+		"no template": func(t *testing.T) { _ = os.Rename(filepath.Join(Source, ".env"), filepath.Join(Source, ".env.x")) },
+		"database": func(t *testing.T) {
+			st.Runtime = "docker"
+			_ = os.WriteFile(filepath.Join(Source, "docker-compose.yml"), []byte(strings.Replace(read(t, "compose-7.3.yml"), "mysql:8.4.11", "mysql:9.7.4", 1)), 0o644)
+			_ = os.WriteFile(filepath.Join(st.Dir, "docker-compose.yml"), []byte(read(t, "compose-7.3.yml")), 0o644)
+			(&fakeMySQL{users: "error"}).use(t)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st = upgradeFixture(t, read(t, "seed-7.2.yaml"))
+			setup(t)
+			if p, err := Prepare(ctx, st, "7.3.0"); err == nil && (name != "database" || p.MySQLBlocked == "") {
+				t.Errorf("%s: prepared %+v", name, p)
+			}
+		})
+	}
+}
+
+// TestPreparePreviousSeed checks a seed of the person's own compared with the one the
+// installed version shipped, downloaded at its tag.
+func TestPreparePreviousSeed(t *testing.T) {
+	st := upgradeFixture(t, "custom: seed\n")
+	tag := func(v string) []byte {
+		return repoArchive(t,
+			tarEntry{name: "d/.env", body: read(t, "env-7.3.template")},
+			tarEntry{name: "d/docker-compose.yml", body: read(t, "compose-7.3.yml")},
+			tarEntry{name: "d/data/seed.yaml", body: read(t, "seed-"+v+".yaml")})
+	}
+	serveRepo(t, map[string][]byte{"refs/tags/v7.3.0": tag("7.3"), "refs/tags/v7.2.0": tag("7.2")})
+	p, err := Prepare(context.Background(), st, "7.3.0")
+	if err != nil || p.SeedAction != "custom" {
+		t.Fatalf("prep %+v, %v", p, err)
+	}
+	if !strings.Contains(strings.Join(p.Describe("7.3.0"), "\n"), seedNewName("7.3.0")) {
+		t.Error("the custom seed is not described")
+	}
+	if (*Prep)(nil).Check() != nil || (*Prep)(nil).Describe("7.3.0") != nil {
+		t.Error("no prep")
+	}
+}
+
+// TestApplyRestoreFails checks each file applyPrep and restorePrep cannot read or write.
+func TestApplyRestoreFails(t *testing.T) {
+	if applyPrep(nil, nil, "7.3.0", nil) != nil {
+		t.Error("nothing to apply")
+	}
+	for name, c := range map[string]struct {
+		p     *Prep
+		setup func(t *testing.T, dir string)
+	}{
+		"env read":    {&Prep{Env: "X=1"}, func(t *testing.T, dir string) { _ = os.Remove(filepath.Join(dir, ".env")) }},
+		"env backup":  {&Prep{Env: "X=1"}, func(t *testing.T, dir string) { readOnlyDir(t, dir) }},
+		"env write":   {&Prep{Env: "X=1"}, func(t *testing.T, dir string) { _ = os.Chmod(filepath.Join(dir, ".env"), 0o400) }},
+		"seed read":   {&Prep{SeedAction: "replace"}, func(t *testing.T, dir string) { _ = os.Remove(filepath.Join(dir, "data", "seed.yaml")) }},
+		"seed backup": {&Prep{SeedAction: "replace"}, func(t *testing.T, dir string) { readOnlyDir(t, filepath.Join(dir, "data")) }},
+		"seed write":  {&Prep{SeedAction: "replace"}, func(t *testing.T, dir string) { _ = os.Chmod(filepath.Join(dir, "data", "seed.yaml"), 0o444) }},
+		"custom":      {&Prep{SeedAction: "custom"}, func(t *testing.T, dir string) { readOnlyDir(t, filepath.Join(dir, "data")) }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := upgradeFixture(t, read(t, "seed-7.2.yaml"))
+			c.setup(t, st.Dir)
+			if applyPrep(st, c.p, "7.3.0", &Undo{}) == nil {
+				t.Errorf("%s: applied", name)
+			}
+		})
+	}
+	for name, c := range map[string]struct {
+		undo  *Undo
+		setup func(t *testing.T, dir string)
+	}{
+		"env":   {&Undo{Env: "X=1"}, func(t *testing.T, dir string) { _ = os.Chmod(filepath.Join(dir, ".env"), 0o400) }},
+		"seed":  {&Undo{Seed: "s"}, func(t *testing.T, dir string) { _ = os.Chmod(filepath.Join(dir, "data", "seed.yaml"), 0o444) }},
+		"mycnf": {&Undo{MyCnf: "[mysqld]"}, func(t *testing.T, dir string) {}},
+	} {
+		t.Run("restore "+name, func(t *testing.T) {
+			st := upgradeFixture(t, read(t, "seed-7.2.yaml"))
+			c.setup(t, st.Dir)
+			if restorePrep(st, c.undo) == nil {
+				t.Errorf("%s: restored", name)
+			}
+		})
+	}
+}
+
+// readOnlyDir makes a folder read-only for the rest of the test.
+func readOnlyDir(t *testing.T, dir string) {
+	_ = os.Chmod(dir, 0o500)
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 }

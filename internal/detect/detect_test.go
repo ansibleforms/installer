@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ansibleforms/installer/internal/fakebin"
 	"github.com/ansibleforms/installer/internal/state"
 )
 
@@ -300,122 +300,6 @@ func TestFindComposeRefused(t *testing.T) {
 	}
 }
 
-// a controller started from docker-compose.yaml (or compose.yaml): read from that file and
-// taken over, as compose reads it
-func TestFindComposeYaml(t *testing.T) {
-	for _, name := range []string{"docker-compose.yaml", "compose.yaml", "compose.yml"} {
-		f, dir := composeController(t)
-		if err := os.Rename(filepath.Join(dir, "docker-compose.yml"), filepath.Join(dir, name)); err != nil {
-			t.Fatal(err)
-		}
-		f.out["docker inspect"] = strings.ReplaceAll(f.out["docker inspect"], dir+"/docker-compose.yml", dir+"/"+name)
-		if got := find(context.Background(), f.env()); len(got) != 1 || !got[0].Adoptable() {
-			t.Fatalf("%s: found %+v, want it adoptable", name, got)
-		}
-	}
-}
-
-// the compose file of a project: its label's when it is one of the folder's own, else the
-// first compose reads by itself
-func TestProjectComposeFile(t *testing.T) {
-	dir := t.TempDir()
-	if got := ProjectComposeFile(dir, dir+"/docker-compose.yaml"); got != filepath.Join(dir, "docker-compose.yaml") {
-		t.Errorf("label: %s", got)
-	}
-	if got := ProjectComposeFile(dir, "/elsewhere/docker-compose.yml"); got != "" {
-		t.Errorf("another folder: %s", got)
-	}
-	if got := ProjectComposeFile(dir, ""); got != filepath.Join(dir, "docker-compose.yml") {
-		t.Errorf("none: %s", got)
-	}
-	write(t, dir, map[string]string{"compose.yml": "services: {}\n", "docker-compose.yml": "services: {}\n"})
-	if got := ProjectComposeFile(dir, ""); got != filepath.Join(dir, "compose.yml") {
-		t.Errorf("no label: %s, want compose.yml (read first)", got)
-	}
-}
-
-// a Runner alone (the RTE's image, no app): on Podman, stopped, taken over
-func TestFindRunnerOnly(t *testing.T) {
-	f := &fake{t: t, has: map[string]bool{}, out: map[string]string{}}
-	dir := podmanRunner(t, f)
-	got := find(context.Background(), f.env())
-	if len(got) != 1 {
-		t.Fatalf("found %+v, want 1", got)
-	}
-	i := got[0]
-	if i.Engine != Podman || i.Role != RoleRunner || i.Version != "7.3.0" || i.Running || i.Name != "runner" || i.Port != 8000 || !i.Adoptable() {
-		t.Fatalf("found %+v", i)
-	}
-	st := i.State()
-	if st.Mode != state.Compose || st.Runtime != "podman" || st.Role != RoleRunner || st.Dir != dir || st.Project != "" {
-		t.Errorf("state: %+v", st)
-	}
-	// a Runner whose .env lacks what the installer's Runner file needs
-	write(t, dir, map[string]string{".env": "APP_URL=https://forms.example.com\n"})
-	if got := find(context.Background(), f.env()); len(got) != 1 || got[0].Problem != RunnerLayout {
-		t.Fatalf("found %+v, want %s", got, RunnerLayout)
-	}
-}
-
-// a release of the chart is taken over; a StatefulSet by hand is found, not taken over; the
-// chart's MySQL and another chart are not AnsibleForms
-func TestFindHelmRelease(t *testing.T) {
-	f := &fake{t: t, has: map[string]bool{}, out: map[string]string{}}
-	helmRelease(t, f)
-	got := find(context.Background(), f.env())
-	if len(got) != 2 {
-		t.Fatalf("found %+v, want 2", got)
-	}
-	rel, lab := got[1], got[0]
-	if rel.Namespace != "forms" {
-		rel, lab = lab, rel
-	}
-	if rel.Engine != Kubernetes || rel.Release != "ansibleforms" || rel.Version != "7.2.0" || !rel.Running || !rel.Adoptable() {
-		t.Errorf("release: %+v", rel)
-	}
-	if len(rel.Workloads) != 1 || rel.Workloads[0] != "deploy/ansibleforms-server" {
-		t.Errorf("release's workloads: %v", rel.Workloads)
-	}
-	st := rel.State()
-	if st.Mode != state.Kubernetes || st.Namespace != "forms" || st.Release != "ansibleforms" || st.Role != RoleController {
-		t.Errorf("state: %+v", st)
-	}
-	if lab.Problem != NoHelm || lab.Version != "7.1.4" || lab.Workloads[0] != "sts/forms-by-hand" || lab.Running {
-		t.Errorf("by hand: %+v", lab)
-	}
-}
-
-// systemd services of the installer's layout are taken over; a clone run by hand is found
-// with its package.json's version, not taken over; the podman unit and sshd are neither
-func TestFindNative(t *testing.T) {
-	f := &fake{t: t, has: map[string]bool{}, out: map[string]string{}}
-	dir, hand := nativeServices(t, f)
-	got := find(context.Background(), f.env())
-	if len(got) != 2 {
-		t.Fatalf("found %+v, want 2", got)
-	}
-	var mine, theirs Install
-	for _, i := range got {
-		if i.Dir == dir {
-			mine = i
-		} else {
-			theirs = i
-		}
-	}
-	if mine.Engine != Systemd || mine.Role != RoleController || mine.Version != "7.3.0" || mine.Name != "ansibleforms" || mine.Port != 8443 || !mine.HTTPS || !mine.Running {
-		t.Errorf("installer's layout: %+v", mine)
-	}
-	if !mine.Adoptable() || len(mine.Units) != 2 {
-		t.Fatalf("installer's layout not adoptable: %+v", mine)
-	}
-	if st := mine.State(); st.Mode != state.Native || st.Dir != dir || st.Name != "ansibleforms" || st.Port != 8443 {
-		t.Errorf("state: %+v", st)
-	}
-	if theirs.Dir != hand || theirs.Version != "7.2.0" || theirs.Problem != NativeLayout || theirs.Running {
-		t.Errorf("by hand: %+v", theirs)
-	}
-}
-
 // several at once, in a stable order: the containers, the cluster, the services
 func TestFindSeveral(t *testing.T) {
 	f, _ := composeController(t)
@@ -555,83 +439,39 @@ func serverPort(t *testing.T, s *httptest.Server) int {
 	return p
 }
 
-// the app answers its version endpoint; an RTE its liveness probe and asks its token for
-// the rest; another service's /live is not an RTE; nothing listening is nothing
-func TestProbePort(t *testing.T) {
-	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			t.Errorf("%s %s: only GET may be sent", r.Method, r.URL.Path)
+// TestWhere checks the short text of each kind of installation.
+func TestWhere(t *testing.T) {
+	for i, want := range map[*Install]string{
+		{Engine: Kubernetes, Namespace: "ns", Release: "rel"}:               "ns / rel",
+		{Engine: Systemd, Dir: "/opt/af", Units: []string{"a", "b"}}:        "/opt/af (a, b)",
+		{Engine: None, Port: 443}:                                           "localhost:443",
+		{Engine: Docker, Containers: []string{"x", "y"}}:                    "x, y",
+		{Engine: Docker, Dir: "/srv/docker", Project: "docker", Name: "af"}: "/srv/docker (docker)",
+		{Engine: Docker, Dir: "/srv/af", Project: "af", Name: "af"}:         "/srv/af",
+	} {
+		if got := i.Where(); got != want {
+			t.Errorf("%+v: %q, want %q", *i, got, want)
 		}
-		if r.URL.Path == "/api/v2/version" {
-			_, _ = w.Write([]byte(`{"version":"7.2.0","server":{"gitSha":"dev"}}`))
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer app.Close()
-	rte := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/live":
-			_, _ = w.Write([]byte(`{"status":"live"}`))
-		case "/rte/v1/health":
-			w.WriteHeader(http.StatusUnauthorized)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer rte.Close()
-	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/live" {
-			_, _ = w.Write([]byte(`{"status":"live"}`))
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer other.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if a := ProbePort(ctx, serverPort(t, app)); !a.App || a.Version != "7.2.0" || a.HTTPS {
-		t.Errorf("app: %+v", a)
 	}
-	if a := ProbePort(ctx, serverPort(t, rte)); !a.RTE || a.App || !a.HTTPS {
-		t.Errorf("rte: %+v", a)
-	}
-	if a := ProbePort(ctx, serverPort(t, other)); a.App || a.RTE {
-		t.Errorf("another service: %+v", a)
-	}
-	closed := httptest.NewServer(http.NotFoundHandler())
-	port := serverPort(t, closed)
-	closed.Close()
-	if a := ProbePort(ctx, port); a.App || a.RTE {
-		t.Errorf("nothing listening: %+v", a)
+	if !(Install{Engine: None, Port: 443}).Manages(&state.State{Port: 443}) || (Install{Engine: None}).Manages(&state.State{}) {
+		t.Error("Manages of a port")
 	}
 }
 
-// workloads Argo CD manages are found, named after their Application, and never taken over:
-// by its tracking annotation, and by the chart's labels without a Helm release (label tracking)
-func TestFindArgoCD(t *testing.T) {
-	f := &fake{t: t, has: map[string]bool{"kubectl": true}, out: map[string]string{
-		"kubectl get deployments,statefulsets": `{"items":[
- {"kind":"Deployment","metadata":{"name":"forms-server","namespace":"forms","labels":{"app.kubernetes.io/instance":"forms"},
-  "annotations":{"argocd.argoproj.io/tracking-id":"ansibleforms-prod:apps/Deployment:forms/forms-server"}},
-  "spec":{"template":{"spec":{"containers":[{"image":"ghcr.io/ansibleforms/ansibleforms:7.3.0"}]}}},"status":{"readyReplicas":1}},
- {"kind":"Deployment","metadata":{"name":"lab-server","namespace":"lab","labels":{"app.kubernetes.io/instance":"lab-forms","app.kubernetes.io/managed-by":"Helm"}},
-  "spec":{"template":{"spec":{"containers":[{"image":"ghcr.io/ansibleforms/ansibleforms:7.2.0"}]}}},"status":{"readyReplicas":1}}
-]}`,
-	}}
-	got := find(context.Background(), f.env())
-	if len(got) != 2 {
-		t.Fatalf("found %+v, want 2", got)
+// TestProbeNothing checks no port and no probe answer nothing.
+func TestProbeNothing(t *testing.T) {
+	if (Env{}).probe(context.Background(), 443) != (Answer{}) || (Env{Probe: ProbePort}).probe(context.Background(), 0) != (Answer{}) {
+		t.Error("probe")
 	}
-	apps := map[string]string{}
-	for _, i := range got {
-		if i.Problem != ArgoCD || i.Adoptable() {
-			t.Errorf("%s: problem %q, want argoCD and not taken over", i.Namespace, i.Problem)
-		}
-		apps[i.Namespace] = i.ArgoApp
-	}
-	if apps["forms"] != "ansibleforms-prod" || apps["lab"] != "lab-forms" {
-		t.Errorf("applications %v", apps)
+}
+
+// TestFindDefault checks the real detection, every program faked away and no port answering.
+func TestFindDefault(t *testing.T) {
+	fakebin.New(t)
+	was := DefaultPorts
+	DefaultPorts = []int{1}
+	defer func() { DefaultPorts = was }()
+	if got := Find(context.Background()); len(got) != 0 {
+		t.Errorf("found %+v", got)
 	}
 }

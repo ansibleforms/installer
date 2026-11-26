@@ -96,8 +96,12 @@ func (l layout) unit(service string) string {
 
 // unitPath is where a service's unit file goes.
 func (l layout) unitPath(service string) string {
-	return filepath.Join("/etc/systemd/system", l.unit(service)+".service")
+	return filepath.Join(unitDir, l.unit(service)+".service")
 }
+
+// unitDir is where systemd reads the units the installer writes; the tests use a folder of
+// their own.
+var unitDir = "/etc/systemd/system"
 
 // services are the systemd services of a role: the app and its RTE, or a Runner's RTE alone.
 func services(role string) []string {
@@ -205,7 +209,7 @@ func Install(ctx context.Context, o compose.Options) (*state.State, *compose.Res
 
 	if o.Role == compose.RoleController {
 		ui.Step(i18n.T("compose.waiting"))
-		if _, err := health.Wait(ctx, res.URL, 10*time.Minute); err != nil {
+		if _, err := waitApp(ctx, res.URL, 10*time.Minute); err != nil {
 			return st, res, err
 		}
 	} else {
@@ -267,7 +271,7 @@ func ensureUser(ctx context.Context, l layout) error {
 		return nil
 	}
 	shell := "/bin/false"
-	for _, s := range []string{"/usr/sbin/nologin", "/sbin/nologin"} {
+	for _, s := range nologin {
 		if _, err := os.Stat(s); err == nil {
 			shell = s
 			break
@@ -275,6 +279,10 @@ func ensureUser(ctx context.Context, l layout) error {
 	}
 	return system.Run(ctx, "", "useradd", "--system", "--user-group", "--home-dir", l.home(), "--no-create-home", "--shell", shell, l.name)
 }
+
+// nologin are the shells that refuse a sign-in, the first found taken; the tests name their
+// own.
+var nologin = []string{"/usr/sbin/nologin", "/sbin/nologin"}
 
 // own gives the data and the home to the system user ; the releases and the runtimes stay
 // root's, so the services cannot change their own code.
@@ -311,8 +319,21 @@ var Bundle string
 
 // bundleURL is where a release's bundle is published, with its checksum next to it.
 func bundleURL(version string) string {
-	return fmt.Sprintf("https://github.com/%s/releases/download/%s/ansibleforms-%s-linux-%s.tar.gz", releases.AppRepo, version, version, system.Arch())
+	return fmt.Sprintf("%s/%s/releases/download/%s/ansibleforms-%s-linux-%s.tar.gz", githubBase, releases.AppRepo, version, version, system.Arch())
 }
+
+// githubBase and nodeDist are where the bundle, uv and Node.js are downloaded from; the tests
+// serve them from a server of their own.
+var (
+	githubBase = "https://github.com"
+	nodeDist   = "https://nodejs.org/dist/"
+)
+
+// waitApp waits for the app to answer at its address (health.Wait); the tests answer at once.
+var waitApp = health.Wait
+
+// pollEvery is how often waitPort tries the port again; the tests try sooner.
+var pollEvery = 2 * time.Second
 
 // prepareRelease puts a release in place, next to the one that runs: the bundle, Node.js,
 // and Python with Ansible and the collections of the RTE images. A release that is already
@@ -465,7 +486,7 @@ func installNode(ctx context.Context, l layout, major string) (string, error) {
 		return dir, nil
 	}
 	ui.Step(i18n.T("native.node", "version", strings.TrimPrefix(version, "v")))
-	base := "https://nodejs.org/dist/" + version + "/"
+	base := nodeDist + version + "/"
 	sums, err := getText(ctx, base+"SHASUMS256.txt")
 	if err != nil {
 		return "", err
@@ -567,7 +588,7 @@ func installUV(ctx context.Context, l layout, version string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	if err := fetchVerified(ctx, "https://github.com/astral-sh/uv/releases/download/"+version+"/"+name, dir, 1); err != nil {
+	if err := fetchVerified(ctx, githubBase+"/astral-sh/uv/releases/download/"+version+"/"+name, dir, 1); err != nil {
 		return "", err
 	}
 	return uv, nil
@@ -631,9 +652,9 @@ func writeData(ctx context.Context, l layout, version, role string, keep bool) e
 			return err
 		}
 	}
-	if err := os.Chmod(filepath.Join(l.data(), "ssh"), 0o700); err != nil {
-		return err
-	}
+	// the SSH folder, just made or the installer's own, readable by its owner only: its mode
+	// always changes
+	_ = os.Chmod(filepath.Join(l.data(), "ssh"), 0o700)
 	gitconfig := filepath.Join(l.data(), "git", ".gitconfig")
 	if _, err := os.Stat(gitconfig); errors.Is(err, os.ErrNotExist) {
 		if err := os.WriteFile(gitconfig, nil, 0o644); err != nil {
@@ -1032,7 +1053,7 @@ func writeUnit(l layout, service string, port int) error {
 func waitPort(ctx context.Context, unit string, port int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 2*time.Second)
+		c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), pollEvery)
 		if err == nil {
 			c.Close()
 			return nil
@@ -1040,7 +1061,7 @@ func waitPort(ctx context.Context, unit string, port int, timeout time.Duration)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(2 * time.Second):
+		case <-time.After(pollEvery):
 		}
 	}
 	return errors.New(i18n.T("native.notReady", "unit", unit))
@@ -1163,7 +1184,7 @@ func Upgrade(ctx context.Context, st *state.State, to string) (*Undo, error) {
 		}
 	} else {
 		ui.Step(i18n.T("compose.waiting"))
-		got, err := health.Wait(ctx, URL(st), 15*time.Minute)
+		got, err := waitApp(ctx, URL(st), 15*time.Minute)
 		if err != nil {
 			return undo, err
 		}
@@ -1246,7 +1267,7 @@ func Status(ctx context.Context, st *state.State) error {
 		ui.Muted(filepath.Join(l.dir, "releases", v))
 	}
 	if st.Role != compose.RoleRunner {
-		if v, err := health.Wait(ctx, URL(st), 5*time.Second); err == nil {
+		if v, err := waitApp(ctx, URL(st), 5*time.Second); err == nil {
 			ui.Done(i18n.T("status.answers", "url", URL(st), "version", v))
 		} else {
 			ui.Warn(i18n.T("status.noAnswer", "url", URL(st)))
@@ -1322,7 +1343,7 @@ func readEnvFile(path string) (map[string]string, error) {
 
 // latestNode is the newest release of a Node.js major version, from nodejs.org's index.
 func latestNode(ctx context.Context, major string) (string, error) {
-	index, err := getText(ctx, "https://nodejs.org/dist/index.json")
+	index, err := getText(ctx, nodeDist+"index.json")
 	if err != nil {
 		return "", err
 	}

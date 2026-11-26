@@ -314,20 +314,8 @@ func prepareMigration(ctx context.Context, st *state.State, to string, m Migrati
 	if ro.Token == "" {
 		ro.Token = Secret(32)
 	}
-	res, err := writeRunner(ctx, Options{Role: RoleRunner, Runtime: system.Runtime(st.Runtime), Dir: st.Dir, Name: st.Name, Version: to, Port: m.Port, Runner: ro, KeepData: true})
+	res, err := writeRunner(ctx, Options{Role: RoleRunner, Runtime: system.Runtime(st.Runtime), Dir: st.Dir, Name: st.Name, Version: to, Port: m.Port, Runner: ro, KeepData: true}, m.Settings)
 	if err != nil {
-		return undo, nil, nil, err
-	}
-	envPath := filepath.Join(st.Dir, ".env")
-	env, err := os.ReadFile(envPath)
-	if err != nil {
-		return undo, nil, nil, err
-	}
-	if err := os.WriteFile(envPath, []byte(carriedEnv(string(env), m.Settings)), 0o600); err != nil {
-		return undo, nil, nil, err
-	}
-	// the old .env may have been readable by all : the new one holds the runner's token
-	if err := os.Chmod(envPath, 0o600); err != nil {
 		return undo, nil, nil, err
 	}
 	return undo, res, &next, nil
@@ -596,7 +584,7 @@ func waitConnected(ctx context.Context, r system.Runtime, container string, sinc
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(3 * time.Second):
+		case <-time.After(pollEvery):
 		}
 	}
 	return errors.New(i18n.T("migrate.notConnected", "container", container, "runtime", string(r)))

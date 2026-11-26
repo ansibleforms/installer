@@ -71,7 +71,7 @@ var ErrNone = errors.New("no AnsibleForms installation found: run the installer 
 //
 //	The file's path.
 func Path() string {
-	if os.Geteuid() == 0 {
+	if geteuid() == 0 {
 		return "/etc/ansibleforms/installer.json"
 	}
 	dir, err := os.UserConfigDir()
@@ -80,6 +80,9 @@ func Path() string {
 	}
 	return filepath.Join(dir, "ansibleforms", "installer.json")
 }
+
+// geteuid tells the user the installer runs as; the tests pretend to be root.
+var geteuid = os.Geteuid
 
 // Load reads the state.
 //
@@ -115,10 +118,8 @@ func (s *State) Save() error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
-	}
+	// a State is plain strings, numbers and times : it always marshals
+	data, _ := json.MarshalIndent(s, "", "  ")
 	return os.WriteFile(p, append(data, '\n'), 0o600)
 }
 

@@ -173,11 +173,10 @@ func kubernetes(ctx context.Context, env Env) []Install {
 			}
 		}
 	}
+	// every one has a version or a problem: a release's version falls back to its chart's,
+	// and a workload alone is never taken over
 	for n := range found {
 		sort.Strings(found[n].Workloads)
-		if found[n].Problem == "" && found[n].Version == "" {
-			found[n].Problem = UnknownVersion
-		}
 	}
 	return found
 }

@@ -91,7 +91,7 @@ func validToken(s string) error {
 //	When the old RTE is gone, a token is needed unattended, the app cannot be reached, or the
 //	person stops.
 func askMigration(ctx context.Context, f Flags, st *state.State, from, to releases.Version) (*compose.Migration, releases.Version, error) {
-	old := detect.FindDatabaseRunner(ctx, st)
+	old := detectFindDatabaseRunner(ctx, st)
 	if old == nil {
 		return nil, to, errors.New(i18n.T("migrate.gone", "dir", st.Dir))
 	}
@@ -162,7 +162,7 @@ func askMigration(ctx context.Context, f Flags, st *state.State, from, to releas
 		}},
 		{label: "network", skip: func() bool { return mp.mode != "inbound" }, ask: func() error {
 			ui.Explain(i18n.T("runner.addressHelp"))
-			h, err := textAgain(f.Host, i18n.T("runner.address"), orStr(mp.host, compose.OutboundIP()), notEmpty)
+			h, err := textAgain(f.Host, i18n.T("runner.address"), orStr(mp.host, composeOutboundIP()), notEmpty)
 			mp.host = h
 			if err == nil {
 				ui.Answered(fmt.Sprintf("%s:%d", h, mp.port))
@@ -276,7 +276,7 @@ func askToken(f Flags, mp *migrationPlan) error {
 //
 // Returns:
 //
-//	The move, for compose.MigrateRunner.
+//	The move, for composeMigrateRunner.
 func (mp *migrationPlan) migration() *compose.Migration {
 	db := mp.old.Database
 	m := &compose.Migration{
@@ -357,7 +357,7 @@ func settingNames(settings map[string]string) string {
 //
 //	When a step fails (after the rollback, when the person chose it).
 func upgradeMigration(ctx context.Context, st *state.State, m *compose.Migration, from, to releases.Version) error {
-	undo, res, err := compose.MigrateRunner(ctx, st, to.String(), *m)
+	undo, res, err := composeMigrateRunner(ctx, st, to.String(), *m)
 	if err != nil {
 		if undo == nil {
 			return err
@@ -370,7 +370,7 @@ func upgradeMigration(ctx context.Context, st *state.State, m *compose.Migration
 		if cerr != nil || !ok {
 			return err
 		}
-		if rerr := compose.RollbackMigration(ctx, st, undo); rerr != nil {
+		if rerr := composeRollbackMigration(ctx, st, undo); rerr != nil {
 			return fmt.Errorf("%s: %w", i18n.T("upgrade.rollbackFailed"), rerr)
 		}
 		ui.Done(i18n.T("migrate.rolledBack"))

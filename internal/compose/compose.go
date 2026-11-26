@@ -93,6 +93,25 @@ type Result struct {
 
 // ─── compose itself ───────────────────────────────────────────────────────────
 
+// ─── what the tests replace ───────────────────────────────────────────────────
+
+var (
+	// geteuid tells the user the installer runs as; the tests pretend to be root or not.
+	geteuid = os.Geteuid
+	// waitApp waits for the app to answer at its address (health.Wait); the tests answer at
+	// once.
+	waitApp = health.Wait
+	// pollEvery is how often a container's health and its log are looked at again.
+	pollEvery = 3 * time.Second
+	// Codeload is where the docker repository's archive is downloaded from; the tests (this
+	// package's and native's) serve their own.
+	Codeload = "https://codeload.github.com/"
+	// systemdDir is where root's systemd units go.
+	systemdDir = "/etc/systemd/system/"
+	// outboundTarget is the address OutboundIP routes to (TEST-NET-3: never reached).
+	outboundTarget = "203.0.113.1:9"
+)
+
 // composeCmd is the compose command of a runtime, for one project.
 //
 // Args:
@@ -192,7 +211,7 @@ func Install(ctx context.Context, o Options) (*state.State, *Result, error) {
 	var res *Result
 	var err error
 	if o.Role == RoleRunner {
-		res, err = writeRunner(ctx, o)
+		res, err = writeRunner(ctx, o, nil)
 	} else {
 		res, err = writeController(ctx, o)
 	}
@@ -223,7 +242,7 @@ func Install(ctx context.Context, o Options) (*state.State, *Result, error) {
 	}
 	if o.Role == RoleController {
 		ui.Step(i18n.T("compose.waiting"))
-		if _, err := health.Wait(ctx, res.URL, 10*time.Minute); err != nil {
+		if _, err := waitApp(ctx, res.URL, 10*time.Minute); err != nil {
 			return st, res, err
 		}
 	} else {
@@ -459,6 +478,7 @@ var runnerData = []string{"data", "data/ansible", "data/ssh", "data/git"}
 //
 //	ctx: the context, to cancel.
 //	o: the answers.
+//	carry: the settings of a Runner of 7.2 carried into its .env (carriedEnv) ; nil : none.
 //
 // Returns:
 //
@@ -467,7 +487,7 @@ var runnerData = []string{"data", "data/ansible", "data/ssh", "data/git"}
 // Errors:
 //
 //	When a file cannot be fetched or written.
-func writeRunner(ctx context.Context, o Options) (*Result, error) {
+func writeRunner(ctx context.Context, o Options, carry map[string]string) (*Result, error) {
 	ui.Step(i18n.T("compose.fetching"))
 	only := func(rel string) bool {
 		for _, p := range runnerData {
@@ -481,9 +501,6 @@ func writeRunner(ctx context.Context, o Options) (*Result, error) {
 		return nil, err
 	}
 	content := strings.NewReplacer("{{IMAGE}}", RteImage(o.Version), "{{NAME}}", o.Name).Replace(runnerCompose)
-	if err := os.WriteFile(filepath.Join(o.Dir, "docker-compose.yml"), []byte(content), 0o644); err != nil {
-		return nil, err
-	}
 	r := o.Runner
 	token := r.Token
 	if token == "" {
@@ -531,8 +548,18 @@ func writeRunner(ctx context.Context, o Options) (*Result, error) {
 	if r.TrustAppCert {
 		lines = append(lines, "# the app's certificate is self-signed : accepted as it is", "APP_TLS_VERIFY=0")
 	}
-	if err := os.WriteFile(filepath.Join(o.Dir, ".env"), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
-		return nil, err
+	// its compose file and its settings, the settings readable by their owner only
+	for _, f := range []struct {
+		name, content string
+		mode          os.FileMode
+	}{{"docker-compose.yml", content, 0o644}, {".env", carriedEnv(strings.Join(lines, "\n")+"\n", carry), 0o600}} {
+		p := filepath.Join(o.Dir, f.name)
+		if err := os.WriteFile(p, []byte(f.content), f.mode); err != nil {
+			return nil, err
+		}
+		// a file that was there keeps its mode through WriteFile: set it (the file is the
+		// installer's own, just written)
+		_ = os.Chmod(p, f.mode)
 	}
 	return res, nil
 }
@@ -584,11 +611,11 @@ func orDefault(v, def string) string {
 //	When it cannot be changed.
 func ownData(ctx context.Context, r system.Runtime, dir string) error {
 	switch {
-	case os.Geteuid() == 0:
+	case geteuid() == 0:
 		return system.Run(ctx, "", "chown", "-R", "1000:1000", dir)
 	case r == system.Podman:
 		return system.Run(ctx, "", "podman", "unshare", "chown", "-R", "1000:1000", dir)
-	case os.Geteuid() == 1000:
+	case geteuid() == 1000:
 		return nil
 	}
 	return system.Run(ctx, "", "docker", "run", "--rm", "-v", dir+":/d", "busybox", "chown", "-R", "1000:1000", "/d")
@@ -617,7 +644,7 @@ func waitHealthy(ctx context.Context, st *state.State, container string, timeout
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(3 * time.Second):
+		case <-time.After(pollEvery):
 		}
 	}
 	return errors.New(i18n.T("compose.notHealthy", "container", container))

@@ -1,10 +1,10 @@
 name: CI
 
 # Checks every pull request and every push to main or a release/<major>.x line as a release
-# would build it: the code is formatted (gofmt), go vet finds nothing, the tests pass, and the
-# installer builds for Linux on amd64 and arm64 and prints the version of
-# internal/version (version.App) back. A Dependabot bump of a Go module or an action has to pass it
-# before it is merged.
+# would build it: the code is formatted (gofmt), go vet finds nothing, the tests pass and run
+# every statement (100.0% coverage), and the installer builds for Linux on amd64 and arm64 and
+# prints the version of internal/version (version.App) back. A Dependabot bump of a Go module
+# or an action has to pass it before it is merged.
 #
 # The release workflow waits for this one: once it finishes green on a push, a version.App
 # that has no release yet is released.
@@ -49,6 +49,20 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      # every statement of the installer runs in a test: the total must read 100.0%, else the
+      # functions that are not fully covered are listed
+      - name: Coverage
+        run: |
+          set -euo pipefail
+          go test -coverpkg=./... -coverprofile=/tmp/c.out ./... > /dev/null
+          total="$(go tool cover -func=/tmp/c.out | awk '/^total:/ {print $3}')"
+          if [ "$total" != "100.0%" ]; then
+            go tool cover -func=/tmp/c.out | grep -v '100.0%'
+            echo "::error::Test coverage is $total, not 100.0%."
+            exit 1
+          fi
+          echo "Test coverage: $total"
 
       # version.App, the AnsibleForms version the installer installs by default, is read from
       # its one line exactly as the release workflow reads it, and the binary has to say it

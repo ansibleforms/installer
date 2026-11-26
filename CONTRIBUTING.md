@@ -40,7 +40,10 @@ The installer needs Go 1.27 or newer; the build is a single static binary.
 go build -o ansibleforms-installer .
 go vet ./...
 go test ./...
+go test -coverpkg=./... -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out | tail -1
 ```
+
+Every statement runs in a test, as CI requires: programs are faked by `internal/fakebin`, the rest through each package's variables.
 
 Try the wizard with `./ansibleforms-installer install --version <a released version>`: nothing changes before its review screen.
 The binary installs `version.App` from `internal/version/version.go` by default, and `./ansibleforms-installer version` prints it.

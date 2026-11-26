@@ -2,12 +2,18 @@ package compose
 
 import (
 	"context"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ansibleforms/installer/internal/state"
+	"github.com/ansibleforms/installer/internal/system"
 )
 
 // ─── a Runner of 7.2 moved to a socket mode : its files ───────────────────────
@@ -298,5 +304,198 @@ func TestUndoCurrent(t *testing.T) {
 	u := &MigrationUndo{OldContainers: []string{"af_rte", "af_other"}, Renamed: map[string]string{"af_rte-old": "af_rte"}}
 	if got := strings.Join(u.current(), ","); got != "af_rte-old,af_other" {
 		t.Errorf("current = %s", got)
+	}
+}
+
+// ─── the move, on a fake host ─────────────────────────────────────────────────
+
+// TestMigrateRunnerOutbound checks a Runner of 7.2 moved outbound: its files saved, its old
+// container set aside, the new one started and connected, the old ones removed, its state.
+func TestMigrateRunnerOutbound(t *testing.T) {
+	h := newHost(t)
+	st, m := runner72(t)
+	t.Setenv("LOGS", "x\nconnected to the app at https://forms.example.com\n")
+	undo, res, err := MigrateRunner(context.Background(), st, "7.3.0", m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !undo.Connected || res.Token != token72 || st.Version != "7.3.0" || st.DatabaseMode {
+		t.Errorf("undo %+v, state %+v", undo, st)
+	}
+	if !h.bin.Called("docker rename af_rte af_rte-old") || !h.bin.Called("docker rm af_rte-old") {
+		t.Errorf("calls %q", h.bin.Calls())
+	}
+	env, _ := os.ReadFile(filepath.Join(st.Dir, ".env"))
+	if !strings.Contains(string(env), "RTE_MAX_JOBS=4") {
+		t.Errorf(".env %s", env)
+	}
+}
+
+// TestMigrateRunnerInbound checks a Runner moved inbound on Podman whose port is taken: the
+// old container stopped first, the removal and the systemd unit that fail only warn.
+func TestMigrateRunnerInbound(t *testing.T) {
+	newHost(t)
+	st, m := runner72(t)
+	st.Runtime = "podman"
+	m.Mode, m.Host, m.Port, m.OldContainers = "inbound", "10.0.0.5", listenPort(t), []string{"old_rte"}
+	t.Setenv("LOGS", "connected to the app")
+	t.Setenv("FAIL", "podman rm")
+	_ = os.Remove(filepath.Join(os.Getenv("PATH"), "systemctl"))
+	if _, _, err := MigrateRunner(context.Background(), st, "7.3.0", m); err != nil {
+		t.Fatal(err)
+	}
+	st, m = runner72(t)
+	m.Mode, m.Host, m.Port = "inbound", "10.0.0.5", 1
+	t.Setenv("FAIL", "docker stop")
+	t.Setenv("LOGS", "connected to the app")
+	if _, _, err := MigrateRunner(context.Background(), st, "7.3.0", m); err != nil {
+		t.Errorf("the old ones not stopped only warn: %v", err)
+	}
+}
+
+// listenPort opens a port, taken for the rest of the test.
+func listenPort(t *testing.T) int {
+	l, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	return l.Addr().(*net.TCPAddr).Port
+}
+
+// TestMigrateRunnerFails checks each step of the move that fails.
+func TestMigrateRunnerFails(t *testing.T) {
+	for name, setup := range map[string]func(t *testing.T, st *state.State, m *Migration){
+		"files":  func(t *testing.T, st *state.State, m *Migration) { Source = filepath.Join(t.TempDir(), "none") },
+		"own":    func(t *testing.T, st *state.State, m *Migration) { t.Setenv("FAIL", "docker run") },
+		"rename": func(t *testing.T, st *state.State, m *Migration) { t.Setenv("FAIL", "docker rename") },
+		"pull":   func(t *testing.T, st *state.State, m *Migration) { t.Setenv("FAIL", "pull --ignore-pull-failures") },
+		"stop": func(t *testing.T, st *state.State, m *Migration) {
+			m.Mode, m.Host, m.Port = "inbound", "10.0.0.5", listenPort(t)
+			t.Setenv("FAIL", "docker stop")
+		},
+		"up":      func(t *testing.T, st *state.State, m *Migration) { t.Setenv("FAIL", " up -d") },
+		"refused": func(t *testing.T, st *state.State, m *Migration) { t.Setenv("LOGS", "the app refused this runner") },
+		"state": func(t *testing.T, st *state.State, m *Migration) {
+			t.Setenv("LOGS", "connected to the app")
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(st.Dir, ".env"))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			newHost(t)
+			st, m := runner72(t)
+			setup(t, st, &m)
+			if _, _, err := MigrateRunner(context.Background(), st, "7.3.0", m); err == nil {
+				t.Errorf("%s: moved", name)
+			}
+		})
+	}
+}
+
+// TestRollbackMigrationSteps checks a rollback: the new project down, the files back, the
+// old container renamed back and started ; and each step that fails.
+func TestRollbackMigrationSteps(t *testing.T) {
+	ctx := context.Background()
+	h := newHost(t)
+	st, _ := runner72(t)
+	dir := t.TempDir()
+	undo := &MigrationUndo{Version: "7.2.0", NewProject: "af", Renamed: map[string]string{"af_rte-old": "af_rte"}, OldContainers: []string{"af_rte"},
+		Files: []SavedFile{{Path: filepath.Join(dir, "gone"), Missing: true}, {Path: filepath.Join(dir, "kept"), Content: []byte("k"), Mode: 0o644}}}
+	if err := RollbackMigration(ctx, st, undo); err != nil {
+		t.Fatal(err)
+	}
+	if !h.bin.Called("docker compose -p af down") || !h.bin.Called("docker rename af_rte-old af_rte") || !h.bin.Called("docker start af_rte") {
+		t.Errorf("calls %q", h.bin.Calls())
+	}
+	if err := RollbackMigration(ctx, st, &MigrationUndo{Renamed: map[string]string{}}); err != nil {
+		t.Errorf("nothing to undo: %v", err)
+	}
+	_ = os.MkdirAll(filepath.Join(dir, "full", "x"), 0o755)
+	if err := RollbackMigration(ctx, st, &MigrationUndo{Files: []SavedFile{{Path: filepath.Join(dir, "full"), Missing: true}}}); err == nil {
+		t.Error("a file that cannot be removed")
+	}
+	t.Setenv("FAIL", "docker rename")
+	if err := RollbackMigration(ctx, st, &MigrationUndo{Renamed: map[string]string{"a": "b"}}); err == nil {
+		t.Error("rename failed")
+	}
+	t.Setenv("FAIL", "docker start")
+	if err := RollbackMigration(ctx, st, &MigrationUndo{OldContainers: []string{"a"}}); err == nil {
+		t.Error("start failed")
+	}
+	if stopContainers(ctx, system.Docker, nil) != nil {
+		t.Error("nothing to stop")
+	}
+}
+
+// TestSaveFilesFails checks backups that cannot be made, a file that cannot be looked at or
+// read, and a copy that cannot be written ; and a saved file that cannot be removed.
+func TestSaveFilesFails(t *testing.T) {
+	dir := t.TempDir()
+	put(t, dir, map[string]string{"file": "x", "sub/a": "a"})
+	if _, err := saveFiles(filepath.Join(dir, "file", "b"), nil, "7.2.0"); err == nil {
+		t.Error("backups under a file")
+	}
+	if _, err := saveFiles(filepath.Join(dir, "b"), []string{filepath.Join(dir, "file", "x")}, "7.2.0"); err == nil {
+		t.Error("a path under a file")
+	}
+	if _, err := saveFiles(filepath.Join(dir, "b"), []string{filepath.Join(dir, "sub")}, "7.2.0"); err == nil {
+		t.Error("a folder")
+	}
+	ro := filepath.Join(dir, "ro")
+	_ = os.MkdirAll(ro, 0o500)
+	defer os.Chmod(ro, 0o755)
+	if _, err := saveFiles(ro, []string{filepath.Join(dir, "file")}, "7.2.0"); err == nil {
+		t.Error("a copy that cannot be written")
+	}
+
+	newHost(t)
+	st, m := runner72(t)
+	_ = os.MkdirAll(backupDir(st), 0o700)
+	_ = os.Chmod(st.Dir, 0o500)
+	defer os.Chmod(st.Dir, 0o755)
+	if _, _, _, err := prepareMigration(context.Background(), st, "7.3.0", m); err == nil {
+		t.Error("an old file that cannot be removed")
+	}
+	_ = os.Chmod(st.Dir, 0o755)
+	_ = os.RemoveAll(backupDir(st))
+	_ = os.WriteFile(backupDir(st), nil, 0o644)
+	if _, _, _, err := prepareMigration(context.Background(), st, "7.3.0", m); err == nil {
+		t.Error("backups that cannot be made")
+	}
+}
+
+// TestWaitConnected checks the log's answer, the probe of an outbound Runner whose log cannot
+// be read, a container that exited, a context that ends and a time that runs out.
+func TestWaitConnected(t *testing.T) {
+	newHost(t)
+	ctx := context.Background()
+	since := time.Now()
+	t.Setenv("LOGS", "waiting for an admin to approve")
+	if err := waitConnected(ctx, system.Docker, "af_rte", since, 1, false, time.Second); err == nil {
+		t.Error("pending")
+	}
+	t.Setenv("LOGS", "")
+	t.Setenv("FAIL", "docker logs")
+	ready := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer ready.Close()
+	port := ready.Listener.Addr().(*net.TCPAddr).Port
+	if err := waitConnected(ctx, system.Docker, "af_rte", since, port, false, time.Second); err != nil {
+		t.Errorf("ready: %v", err)
+	}
+	notReady := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) }))
+	defer notReady.Close()
+	port = notReady.Listener.Addr().(*net.TCPAddr).Port
+	if err := waitConnected(ctx, system.Docker, "af_rte", since, port, false, 50*time.Millisecond); err == nil {
+		t.Error("never ready")
+	}
+	t.Setenv("STATUS", "exited")
+	if err := waitConnected(ctx, system.Docker, "af_rte", since, 1, true, time.Second); err == nil {
+		t.Error("exited")
+	}
+	t.Setenv("STATUS", "running")
+	c, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := waitConnected(c, system.Docker, "af_rte", since, 1, true, time.Second); !errors.Is(err, context.Canceled) {
+		t.Errorf("cancelled: %v", err)
 	}
 }

@@ -68,11 +68,14 @@ const (
 //
 //	True when it is a terminal of at least MinWidth by MinHeight.
 func Fits() bool {
-	w, h, err := term.GetSize(os.Stdout.Fd())
+	w, h, err := termSize()
 	return err == nil && w >= MinWidth && h >= MinHeight
 }
 
 // ─── what the flow asks ───────────────────────────────────────────────────────
+
+// termSize is the terminal's size (term.GetSize of stdout); the tests give their own.
+var termSize = func() (int, int, error) { return term.GetSize(os.Stdout.Fd()) }
 
 // Kind is what a question is.
 type Kind int
@@ -771,6 +774,10 @@ func truncate(s string, w int) string {
 
 // ─── the program ──────────────────────────────────────────────────────────────
 
+// ProgramOptions are how the wizard runs: on the terminal's alternate screen ; the tests (this
+// package's and ui's) run it without a terminal.
+var ProgramOptions = []tea.ProgramOption{tea.WithAltScreen()}
+
 var (
 	mu      sync.Mutex
 	program *tea.Program
@@ -786,7 +793,7 @@ var (
 func Start(title, sub string) {
 	mu.Lock()
 	defer mu.Unlock()
-	program = tea.NewProgram(newModel(title, sub), tea.WithAltScreen())
+	program = tea.NewProgram(newModel(title, sub), ProgramOptions...)
 	stopped = make(chan struct{})
 	go func() {
 		_, _ = program.Run()
@@ -816,8 +823,21 @@ func Running() bool {
 // send hands a message to the program ; nothing once it stopped.
 func send(msg tea.Msg) {
 	if Running() {
-		program.Send(msg)
+		p, _ := current()
+		p.Send(msg)
 	}
+}
+
+// current is the wizard's program and the channel closed once it stopped, read under the
+// lock: a later Start replaces both.
+//
+// Returns:
+//
+//	The program and its stopped channel.
+func current() (*tea.Program, chan struct{}) {
+	mu.Lock()
+	defer mu.Unlock()
+	return program, stopped
 }
 
 // Ask asks a question and waits for the answer.
@@ -833,12 +853,13 @@ func Ask(q Question) Answer {
 	if !Running() {
 		return Answer{Abort: true}
 	}
+	p, done := current()
 	reply := make(chan Answer, 1)
-	program.Send(askMsg{q: q, reply: reply})
+	p.Send(askMsg{q: q, reply: reply})
 	select {
 	case a := <-reply:
 		return a
-	case <-stopped:
+	case <-done:
 		return Answer{Abort: true}
 	}
 }
@@ -890,11 +911,12 @@ func Finish(title string, lines []string, failed bool) {
 	if !Running() {
 		return
 	}
+	p, gone := current()
 	done := make(chan struct{})
-	program.Send(finishMsg{title: title, lines: lines, failed: failed, done: done})
+	p.Send(finishMsg{title: title, lines: lines, failed: failed, done: done})
 	select {
 	case <-done:
-	case <-stopped:
+	case <-gone:
 	}
 	Stop()
 }
@@ -904,6 +926,7 @@ func Stop() {
 	if !Running() {
 		return
 	}
-	program.Quit()
-	<-stopped
+	p, gone := current()
+	p.Quit()
+	<-gone
 }

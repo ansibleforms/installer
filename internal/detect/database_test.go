@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ansibleforms/installer/internal/fakebin"
+	"github.com/ansibleforms/installer/internal/state"
 )
 
 // ─── a Runner of 7.2 in database mode ─────────────────────────────────────────
@@ -162,5 +165,26 @@ func TestRegisteredName(t *testing.T) {
 	}
 	if !ValidRunnerName("rte-abc123-8000") || ValidRunnerName("bad name") || ValidRunnerName("") {
 		t.Errorf("ValidRunnerName")
+	}
+}
+
+// TestFindDatabaseRunnerCommands checks the database-mode Runner of a state found through the real
+// commands (fake docker on the PATH), and none for another folder or project.
+func TestFindDatabaseRunnerCommands(t *testing.T) {
+	f, dir := dbRunner(t)
+	inspect := filepath.Join(t.TempDir(), "inspect.json")
+	if err := os.WriteFile(inspect, []byte(f.out["docker inspect"]), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := fakebin.New(t)
+	b.Add(t, "docker", `case "$1" in ps) echo fff666 ;; inspect) while IFS= read -r l; do echo "$l"; done < "`+inspect+`" ;; esac`)
+	st := &state.State{Runtime: "docker", Name: "rte", Dir: dir}
+	got := FindDatabaseRunner(context.Background(), st)
+	if got == nil || got.Database == nil {
+		t.Fatalf("found %+v", got)
+	}
+	st.Project = "other"
+	if FindDatabaseRunner(context.Background(), st) != nil {
+		t.Error("another project")
 	}
 }

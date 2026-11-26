@@ -99,12 +99,8 @@ func StorageClasses(ctx context.Context) []string {
 //
 // Returns:
 //
-//	The values, as a values file.
-//
-// Errors:
-//
-//	When they cannot be written as YAML.
-func values(o Options) ([]byte, error) {
+//	The values, as a values file (maps of strings and booleans: YAML always writes them).
+func values(o Options) []byte {
 	storage := func() map[string]any {
 		m := map[string]any{"accessMode": "ReadWriteOnce"}
 		if o.StorageClass != "" {
@@ -123,11 +119,8 @@ func values(o Options) ([]byte, error) {
 			"storages":     map[string]any{"server": storage()},
 		}
 		head := []byte("# Chart values written by the AnsibleForms installer for a Runner; the upgrades apply them again.\n")
-		body, err := yaml.Marshal(v)
-		if err != nil {
-			return nil, err
-		}
-		return append(head, body...), nil
+		body, _ := yaml.Marshal(v)
+		return append(head, body...)
 	}
 	v := map[string]any{
 		"secrets": map[string]any{"generate": true},
@@ -140,11 +133,8 @@ func values(o Options) ([]byte, error) {
 		"storages": map[string]any{"mysql": storage(), "server": storage()},
 	}
 	head := []byte("# Chart values written by the AnsibleForms installer; the upgrades apply them again.\n")
-	body, err := yaml.Marshal(v)
-	if err != nil {
-		return nil, err
-	}
-	return append(head, body...), nil
+	body, _ := yaml.Marshal(v)
+	return append(head, body...)
 }
 
 // valuesPath is where the installer keeps an installation's values file, next to its state.
@@ -211,10 +201,7 @@ func Install(ctx context.Context, o Options) (*state.State, error) {
 		// a Runner serves nothing : its address is the app's it dials
 		st.Role, st.URL = "runner", o.Runner.AppURL
 	}
-	data, err := values(o)
-	if err != nil {
-		return nil, err
-	}
+	data := values(o)
 	if err := os.MkdirAll(filepath.Dir(st.ValuesFile), 0o700); err != nil {
 		return nil, err
 	}

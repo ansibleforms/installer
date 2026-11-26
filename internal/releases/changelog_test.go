@@ -102,3 +102,12 @@ func TestKindOf(t *testing.T) {
 		}
 	}
 }
+
+// TestParseChangelogHeadings checks headings that are no version, and a version too large to
+// read, left out.
+func TestParseChangelogHeadings(t *testing.T) {
+	got := ParseChangelog("## Unreleased\n\n### Added\n\n* x\n\n## 99999999999999999999.0.0\n\n## 7.1.0\n\n### Fixed\n\n* y\n")
+	if len(got) != 1 || got[0].Version != (Version{7, 1, 0}) {
+		t.Errorf("entries %+v", got)
+	}
+}

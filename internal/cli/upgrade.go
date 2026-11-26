@@ -9,8 +9,6 @@ import (
 	"github.com/ansibleforms/installer/internal/compose"
 	"github.com/ansibleforms/installer/internal/detect"
 	"github.com/ansibleforms/installer/internal/i18n"
-	"github.com/ansibleforms/installer/internal/kube"
-	"github.com/ansibleforms/installer/internal/native"
 	"github.com/ansibleforms/installer/internal/releases"
 	"github.com/ansibleforms/installer/internal/state"
 	"github.com/ansibleforms/installer/internal/ui"
@@ -95,7 +93,7 @@ func upgrade(ctx context.Context, f Flags) error {
 		return l
 	}
 	ui.Steps(labels()...)
-	entries, err := releases.FetchChangelog(ctx, to)
+	entries, err := releasesFetchChangelog(ctx, to)
 	if err != nil {
 		ui.Warn(err.Error())
 	}
@@ -138,7 +136,7 @@ func upgrade(ctx context.Context, f Flags) error {
 	// before anything changes ; database settings it lacks stop the upgrade here
 	var prep *compose.Prep
 	if st.Mode == state.Compose && st.Role != compose.RoleRunner {
-		if prep, err = compose.Prepare(ctx, st, to.String()); err != nil {
+		if prep, err = composePrepare(ctx, st, to.String()); err != nil {
 			return err
 		}
 		if err := prep.Check(); err != nil {
@@ -162,25 +160,25 @@ func upgrade(ctx context.Context, f Flags) error {
 
 	switch st.Mode {
 	case state.Kubernetes:
-		dump, err := kube.Upgrade(ctx, st, to.String())
+		dump, err := kubeUpgrade(ctx, st, to.String())
 		if err != nil {
-			return offerRollback(ctx, f, err, func() error { return kube.Rollback(ctx, st, from.String(), dump) })
+			return offerRollback(ctx, f, err, func() error { return kubeRollback(ctx, st, from.String(), dump) })
 		}
 	case state.Native:
-		undo, err := native.Upgrade(ctx, st, to.String())
+		undo, err := nativeUpgrade(ctx, st, to.String())
 		if err != nil {
 			if undo == nil {
 				return err
 			}
-			return offerRollback(ctx, f, err, func() error { return native.Rollback(ctx, st, undo) })
+			return offerRollback(ctx, f, err, func() error { return nativeRollback(ctx, st, undo) })
 		}
 	default:
-		undo, err := compose.Upgrade(ctx, st, to.String(), prep)
+		undo, err := composeUpgrade(ctx, st, to.String(), prep)
 		if err != nil {
 			if undo == nil {
 				return err
 			}
-			return offerRollback(ctx, f, err, func() error { return compose.Rollback(ctx, st, undo) })
+			return offerRollback(ctx, f, err, func() error { return composeRollback(ctx, st, undo) })
 		}
 	}
 	ui.Summary(i18n.T("upgrade.done", "version", to.String()), []string{i18n.T("upgrade.doneFrom", "from", from.String())})
@@ -207,7 +205,7 @@ func pickUpgrade(ctx context.Context, f Flags, from releases.Version) (releases.
 	if f.Version != "" {
 		return releases.ParseVersion(f.Version)
 	}
-	list, err := releases.ListAppVersions(ctx)
+	list, err := releasesListAppVersions(ctx)
 	if err != nil {
 		return targetVersion(ctx, f)
 	}
@@ -355,7 +353,7 @@ func releaseNotes(ctx context.Context, f Flags) error {
 			from = v
 		}
 	}
-	entries, err := releases.FetchChangelog(ctx, to)
+	entries, err := releasesFetchChangelog(ctx, to)
 	if err != nil {
 		return err
 	}
@@ -438,14 +436,14 @@ func statusManaged(ctx context.Context, st *state.State) error {
 	ui.Line(i18n.T("status.summary", "role", role, "mode", mode, "version", st.Version))
 	if st.Mode == state.Kubernetes {
 		ui.Line(i18n.T("status.release", "release", st.Release, "namespace", st.Namespace))
-		return kube.Status(ctx, st)
+		return kubeStatus(ctx, st)
 	}
 	if st.Mode == state.Native {
 		ui.Line(i18n.T("status.folder", "dir", st.Dir, "runtime", i18n.T("install.modeNativeShort")))
-		return native.Status(ctx, st)
+		return nativeStatus(ctx, st)
 	}
 	ui.Line(i18n.T("status.folder", "dir", st.Dir, "runtime", st.Runtime))
-	return compose.Status(ctx, st)
+	return composeStatus(ctx, st)
 }
 
 // backup dumps the database now.
@@ -465,11 +463,11 @@ func backup(ctx context.Context) error {
 	var dump string
 	switch st.Mode {
 	case state.Kubernetes:
-		dump, err = kube.Backup(ctx, st)
+		dump, err = kubeBackup(ctx, st)
 	case state.Native:
-		dump, err = native.Backup(ctx, st)
+		dump, err = nativeBackup(ctx, st)
 	default:
-		dump, err = compose.Backup(ctx, st)
+		dump, err = composeBackup(ctx, st)
 	}
 	if err != nil {
 		return err
@@ -523,11 +521,11 @@ func uninstall(ctx context.Context, f Flags) error {
 	}
 	switch st.Mode {
 	case state.Kubernetes:
-		err = kube.Uninstall(ctx, st, purge)
+		err = kubeUninstall(ctx, st, purge)
 	case state.Native:
-		err = native.Uninstall(ctx, st, purge)
+		err = nativeUninstall(ctx, st, purge)
 	default:
-		err = compose.Uninstall(ctx, st, purge)
+		err = composeUninstall(ctx, st, purge)
 	}
 	if err != nil {
 		return err

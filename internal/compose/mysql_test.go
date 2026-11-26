@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ansibleforms/installer/internal/state"
+	"github.com/ansibleforms/installer/internal/system"
 )
 
 // ─── a fake database ──────────────────────────────────────────────────────────
@@ -639,5 +640,151 @@ func TestReplayUsers(t *testing.T) {
 	}
 	if msg := replayUsers(t.Context(), st, file+".gone"); !strings.Contains(msg, file+".gone") {
 		t.Errorf("warning %q", msg)
+	}
+}
+
+// ─── what is left ─────────────────────────────────────────────────────────────
+
+// runMySQL makes mysqlRun answer each statement as answer says.
+//
+// Args:
+//
+//	t: the test.
+//	answer: the output and error of a statement.
+func runMySQL(t *testing.T, answer func(sql string) (string, error)) {
+	was := mysqlRun
+	mysqlRun = func(_ context.Context, _ *state.State, sql string) (string, error) { return answer(sql) }
+	t.Cleanup(func() { mysqlRun = was })
+}
+
+// TestMySQLExec checks the statements fed to mysql in the database container, plain and
+// forced, through the real commands (fake docker).
+func TestMySQLExec(t *testing.T) {
+	h := newHost(t)
+	h.bin.Add(t, "docker", `read l; echo "ran $l"`)
+	st := &state.State{Runtime: "docker", Name: "af", Dir: t.TempDir()}
+	if out, err := mysqlRun(context.Background(), st, "SELECT 1;\n"); err != nil || out != "ran SELECT 1;" {
+		t.Errorf("run: %q, %v", out, err)
+	}
+	if out, err := mysqlReplay(context.Background(), st, "SELECT 2;\n"); err != nil || out != "ran SELECT 2;" {
+		t.Errorf("replay: %q, %v", out, err)
+	}
+	if !h.bin.Called("docker compose -p af exec -T mysqldb sh -c") {
+		t.Errorf("calls %q", h.bin.Calls())
+	}
+}
+
+// TestMySQLSmall checks a compose file that is no YAML, an image without a tag, the escapes
+// of mysql's batch output, no error to hide, and the data folder of each volume's shape.
+func TestMySQLSmall(t *testing.T) {
+	if mysqlImage("{not yaml") != "" || mysqlVersion("mysql") != "mysql" {
+		t.Error("image")
+	}
+	if unescapeBatch(`a\nb\0c`) != "a\nb\x00c" {
+		t.Errorf("unescape %q", unescapeBatch(`a\nb\0c`))
+	}
+	if hideSecrets(nil, nil) != nil {
+		t.Error("hideSecrets(nil)")
+	}
+	for content, want := range map[string]string{
+		"{not yaml": "",
+		"services:\n  mysqldb:\n    volumes:\n      - nocolon\n      - ./other:/etc/mysql\n":                                "",
+		"services:\n  mysqldb:\n    volumes:\n      - type: volume\n        source: data\n        target: /var/lib/mysql\n": "",
+	} {
+		if got := mysqlDataDir(content, "/srv/af"); got != want {
+			t.Errorf("%q: %q", content, got)
+		}
+	}
+}
+
+// TestMoveMySQLFails checks a .env that cannot be read, users that cannot be listed, a
+// statement that fails (its passwords hidden), and a my.cnf that cannot be looked at or saved.
+func TestMoveMySQLFails(t *testing.T) {
+	ctx := context.Background()
+	p := &Prep{MySQLTo: "9.7.4"}
+	st := mysqlFixture(t, "mysql:9.7.4")
+	_ = os.Rename(filepath.Join(st.Dir, ".env"), filepath.Join(st.Dir, ".env.x"))
+	if moveMySQL(ctx, st, p, &Undo{}) == nil || checkMySQL(ctx, st, p) == nil {
+		t.Error("no .env")
+	}
+	st = mysqlFixture(t, "mysql:9.7.4")
+	(&fakeMySQL{users: "error"}).use(t)
+	if moveMySQL(ctx, st, p, &Undo{}) == nil {
+		t.Error("users not listed")
+	}
+	runMySQL(t, func(sql string) (string, error) {
+		if sql == nativeUsersSQL {
+			return knownUsersOut, nil
+		}
+		return "", errors.New("ERROR at Root!Secret!Of!Mine")
+	})
+	if err := moveMySQL(ctx, st, p, &Undo{}); err == nil || strings.Contains(err.Error(), "Root!Secret!Of!Mine") {
+		t.Errorf("alter: %v", err)
+	}
+	cnf := filepath.Join(st.Dir, filepath.FromSlash(myCnfPath))
+	_ = os.Remove(cnf)
+	_ = os.WriteFile(filepath.Dir(cnf)+"/../conf.d.file", nil, 0o644)
+	st2 := *st
+	st2.Dir = filepath.Join(st.Dir, ".env")
+	if dropMyCnfLine(&st2, &Undo{}) == nil {
+		t.Error("a my.cnf under a file")
+	}
+	_ = os.WriteFile(cnf, []byte(myCnf84), 0o644)
+	readOnlyDir(t, filepath.Dir(cnf))
+	if dropMyCnfLine(st, &Undo{}) == nil {
+		t.Error("a backup that cannot be written")
+	}
+}
+
+// TestSaveUsersFails checks each step of saveUsers that fails.
+func TestSaveUsersFails(t *testing.T) {
+	ctx := context.Background()
+	st := mysqlFixture(t, "mysql:9.7.4")
+	dump := filepath.Join(st.Dir, "d.sql")
+	all := read(t, "mysql-all-users.txt")
+	for name, c := range map[string]struct {
+		answer func(sql string) (string, error)
+		setup  func()
+	}{
+		"env":   {func(string) (string, error) { return "", nil }, func() { _ = os.Rename(filepath.Join(st.Dir, ".env"), filepath.Join(st.Dir, ".env.x")) }},
+		"all":   {func(string) (string, error) { return "", errors.New("down") }, func() {}},
+		"parse": {func(string) (string, error) { return "one column only", nil }, func() {}},
+		"export": {func(sql string) (string, error) {
+			if sql == allUsersSQL {
+				return all, nil
+			}
+			return "", errors.New("down")
+		}, func() {}},
+		"script": {func(sql string) (string, error) {
+			if sql == allUsersSQL {
+				return all, nil
+			}
+			return "garbage line", nil
+		}, func() {}},
+		"write": {func(sql string) (string, error) {
+			if sql == allUsersSQL {
+				return all, nil
+			}
+			return read(t, "mysql-show-users.txt"), nil
+		}, func() { dump = filepath.Join(st.Dir, "none", "d.sql") }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st = mysqlFixture(t, "mysql:9.7.4")
+			dump = filepath.Join(st.Dir, "d.sql")
+			runMySQL(t, c.answer)
+			c.setup()
+			if _, err := saveUsers(ctx, st, dump); err == nil {
+				t.Errorf("%s: saved", name)
+			}
+		})
+	}
+}
+
+// TestMoveDataAsidePodman checks the data moved through podman unshare when it cannot be
+// renamed directly.
+func TestMoveDataAsidePodman(t *testing.T) {
+	h := newHost(t)
+	if _, err := moveDataAside(context.Background(), system.Podman, filepath.Join(t.TempDir(), "none"), "9.7.4"); err != nil || !h.bin.Called("podman unshare mv") {
+		t.Errorf("podman: %v", err)
 	}
 }

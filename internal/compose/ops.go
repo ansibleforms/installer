@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ansibleforms/installer/internal/health"
 	"github.com/ansibleforms/installer/internal/i18n"
 	"github.com/ansibleforms/installer/internal/state"
 	"github.com/ansibleforms/installer/internal/system"
@@ -122,18 +121,21 @@ func repoComposeName(dir string) error {
 	if len(found) == 0 || found[0] == "docker-compose.yml" {
 		return nil
 	}
+	// the others set aside first, then the first one renamed, each said once it is done
 	stamp := time.Now().Format("20060102-150405")
+	type move struct{ from, to, note string }
+	var moves []move
 	for _, name := range found[1:] {
 		aside := name + "." + stamp + ".bak"
-		if err := os.Rename(filepath.Join(dir, name), filepath.Join(dir, aside)); err != nil {
+		moves = append(moves, move{name, aside, i18n.T("compose.composeAside", "file", name, "aside", aside)})
+	}
+	moves = append(moves, move{found[0], "docker-compose.yml", i18n.T("compose.composeRenamed", "file", found[0])})
+	for _, m := range moves {
+		if err := os.Rename(filepath.Join(dir, m.from), filepath.Join(dir, m.to)); err != nil {
 			return err
 		}
-		ui.Muted(i18n.T("compose.composeAside", "file", name, "aside", aside))
+		ui.Muted(m.note)
 	}
-	if err := os.Rename(filepath.Join(dir, found[0]), filepath.Join(dir, "docker-compose.yml")); err != nil {
-		return err
-	}
-	ui.Muted(i18n.T("compose.composeRenamed", "file", found[0]))
 	return nil
 }
 
@@ -270,7 +272,7 @@ func Upgrade(ctx context.Context, st *state.State, to string, prep *Prep) (*Undo
 		}
 	} else {
 		ui.Step(i18n.T("compose.waiting"))
-		got, err := health.Wait(ctx, URL(st), 15*time.Minute)
+		got, err := waitApp(ctx, URL(st), 15*time.Minute)
 		if err != nil {
 			return undo, err
 		}
@@ -383,7 +385,7 @@ func Status(ctx context.Context, st *state.State) error {
 		return err
 	}
 	if st.Role != RoleRunner {
-		if v, err := health.Wait(ctx, URL(st), 5*time.Second); err == nil {
+		if v, err := waitApp(ctx, URL(st), 5*time.Second); err == nil {
 			ui.Done(i18n.T("status.answers", "url", URL(st), "version", v))
 		} else {
 			ui.Warn(i18n.T("status.noAnswer", "url", URL(st)))
@@ -431,7 +433,7 @@ func Uninstall(ctx context.Context, st *state.State, purge bool) error {
 //	When it cannot be deleted.
 func removeAll(ctx context.Context, r system.Runtime, dir string) error {
 	switch {
-	case os.Geteuid() == 0:
+	case geteuid() == 0:
 	case r == system.Podman:
 		if err := system.Run(ctx, "", "podman", "unshare", "rm", "-rf", filepath.Join(dir, "data")); err != nil {
 			return err
@@ -471,8 +473,8 @@ func unitName(st *state.State) string {
 //
 //	Its path.
 func unitPath(st *state.State) string {
-	if os.Geteuid() == 0 {
-		return "/etc/systemd/system/" + unitName(st)
+	if geteuid() == 0 {
+		return systemdDir + unitName(st)
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config/systemd/user", unitName(st))
@@ -512,7 +514,7 @@ TimeoutStartSec=600
 
 [Install]
 WantedBy=%s
-`, st.Name, st.Dir, podman, Project(st), podman, Project(st), map[bool]string{true: "multi-user.target", false: "default.target"}[os.Geteuid() == 0])
+`, st.Name, st.Dir, podman, Project(st), podman, Project(st), map[bool]string{true: "multi-user.target", false: "default.target"}[geteuid() == 0])
 	p := unitPath(st)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
@@ -521,7 +523,7 @@ WantedBy=%s
 		return err
 	}
 	ctl := []string{}
-	if os.Geteuid() != 0 {
+	if geteuid() != 0 {
 		ctl = append(ctl, "--user")
 		// a user's units only run while the user is logged in, unless it lingers
 		if user := os.Getenv("USER"); user != "" {
@@ -546,7 +548,7 @@ func removeSystemd(ctx context.Context, st *state.State) {
 		return
 	}
 	ctl := []string{}
-	if os.Geteuid() != 0 {
+	if geteuid() != 0 {
 		ctl = append(ctl, "--user")
 	}
 	_ = system.Run(ctx, "", "systemctl", append(ctl, "disable", unitName(st))...)
@@ -600,7 +602,7 @@ func Fingerprint(token string) string {
 //
 //	The address, "" when there is no network.
 func OutboundIP() string {
-	conn, err := net.Dial("udp", "203.0.113.1:9") // TEST-NET-3 : never reached, only routed
+	conn, err := net.Dial("udp", outboundTarget) // TEST-NET-3 : never reached, only routed
 	if err != nil {
 		return ""
 	}

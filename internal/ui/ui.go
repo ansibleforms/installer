@@ -55,13 +55,23 @@ var ErrBack = errors.New("back")
 //
 //	True when it opened.
 func StartFullscreen(title, sub string) bool {
-	if Unattended || !tui.Fits() {
+	if Unattended || !fits() {
 		return false
 	}
-	tui.Start(title, sub)
+	start(title, sub)
 	Fullscreen = true
 	return true
 }
+
+// fits, start, Asker and runForm are the full screen and the plain questions as the tests
+// see them: the wizard's size, its start, a question asked in it (exported: the commands'
+// tests answer from their own), and a huh form run on the terminal.
+var (
+	fits    = tui.Fits
+	start   = tui.Start
+	Asker   = tui.Ask
+	runForm = func(f *huh.Form) error { return f.Run() }
+)
 
 // the steps at the left, the current one, and the help of the next question
 var (
@@ -478,7 +488,7 @@ func Document(title string, build func()) error {
 	build()
 	body := doc.String()
 	doc = nil
-	return answerErr(tui.Ask(tui.Question{Kind: tui.Document, Title: title, Help: takeHelp(), Body: strings.TrimLeft(body, "\n"), First: current == 0}))
+	return answerErr(Asker(tui.Question{Kind: tui.Document, Title: title, Help: takeHelp(), Body: strings.TrimLeft(body, "\n"), First: current == 0}))
 }
 
 // ─── questions ────────────────────────────────────────────────────────────────
@@ -514,7 +524,7 @@ func answerErr(a tui.Answer) error {
 //
 //	ErrAborted, or huh's error.
 func run(field huh.Field) error {
-	err := huh.NewForm(huh.NewGroup(field)).WithTheme(huh.ThemeBase16()).Run()
+	err := runForm(huh.NewForm(huh.NewGroup(field)).WithTheme(huh.ThemeBase16()))
 	if errors.Is(err, huh.ErrUserAborted) {
 		return ErrAborted
 	}
@@ -546,7 +556,7 @@ func Select(title string, options []Option, def string) (string, error) {
 		for i, o := range options {
 			opts[i] = tui.Option{Label: o.Label, Value: o.Value, Hint: o.Hint, Disabled: o.Disabled}
 		}
-		a := tui.Ask(tui.Question{Kind: tui.Select, Title: title, Help: h, Options: opts, Default: def, First: current == 0})
+		a := Asker(tui.Question{Kind: tui.Select, Title: title, Help: h, Options: opts, Default: def, First: current == 0})
 		if err := answerErr(a); err != nil {
 			return "", err
 		}
@@ -592,7 +602,7 @@ func NewPassword(title, again, mismatch, def string) (string, error) {
 		return def, nil
 	}
 	if Fullscreen {
-		a := tui.Ask(tui.Question{Kind: tui.Input, Title: title, Help: h, Default: def, Secret: true, Repeat: again, Mismatch: mismatch, First: current == 0})
+		a := Asker(tui.Question{Kind: tui.Input, Title: title, Help: h, Default: def, Secret: true, Repeat: again, Mismatch: mismatch, First: current == 0})
 		if err := answerErr(a); err != nil {
 			return "", err
 		}
@@ -641,7 +651,7 @@ func Confirm(title, yes, no string, def bool) (bool, error) {
 		return def, nil
 	}
 	if Fullscreen {
-		a := tui.Ask(tui.Question{Kind: tui.Confirm, Title: title, Help: h, Yes: yes, No: no, DefaultBool: def, First: current == 0})
+		a := Asker(tui.Question{Kind: tui.Confirm, Title: title, Help: h, Yes: yes, No: no, DefaultBool: def, First: current == 0})
 		if err := answerErr(a); err != nil {
 			return false, err
 		}
@@ -680,7 +690,7 @@ func Input(title, def string, secret bool, validate func(string) error) (string,
 		return def, nil
 	}
 	if Fullscreen {
-		a := tui.Ask(tui.Question{Kind: tui.Input, Title: title, Help: h, Default: def, Secret: secret, Validate: validate, Error: takeProblem(), First: current == 0})
+		a := Asker(tui.Question{Kind: tui.Input, Title: title, Help: h, Default: def, Secret: secret, Validate: validate, Error: takeProblem(), First: current == 0})
 		if err := answerErr(a); err != nil {
 			return "", err
 		}

@@ -103,7 +103,7 @@ func main() {
 		command, args = args[0], args[1:]
 	}
 	if err := flag.CommandLine.Parse(args); err != nil {
-		os.Exit(2)
+		exit(2)
 	}
 	if rest := flag.Args(); len(rest) > 0 {
 		command = rest[0]
@@ -123,18 +123,25 @@ func main() {
 	if command == "install" || command == "upgrade" || command == "" {
 		ui.StartFullscreen(i18n.T("app.header", "version", version.App), "")
 	}
-	err := cli.Run(ctx, command, o)
+	err := runCommand(ctx, command, o)
 	ui.Close(err)
 	switch {
 	case err == nil:
 	case errors.Is(err, ui.ErrAborted) || errors.Is(err, context.Canceled):
 		ui.Warn(i18n.T("app.aborted"))
-		os.Exit(130)
+		exit(130)
 	default:
 		ui.Fail(err.Error())
-		os.Exit(1)
+		exit(1)
 	}
 }
+
+// exit ends the installer with a code, and runCommand runs a command: os.Exit and cli.Run,
+// which the tests replace.
+var (
+	exit       = os.Exit
+	runCommand = cli.Run
+)
 
 // isTerminal tells whether the installer can ask questions: its input is a terminal.
 //

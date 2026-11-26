@@ -97,8 +97,8 @@ func TestUsage(t *testing.T) {
 	}
 }
 
-// TestIsTerminal checks a standard input that is a character device, and one that cannot be
-// looked at.
+// TestIsTerminal checks that no input but a terminal lets the installer ask: /dev/null (cron,
+// systemd, docker exec without -i), a pipe, a file and a closed input are none.
 func TestIsTerminal(t *testing.T) {
 	was := os.Stdin
 	defer func() { os.Stdin = was }()
@@ -106,12 +106,23 @@ func TestIsTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	os.Stdin = null
-	if !isTerminal() {
-		t.Error("/dev/null is a character device")
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
 	}
-	null.Close()
-	if isTerminal() {
-		t.Error("a closed input")
+	defer w.Close()
+	file, err := os.CreateTemp(t.TempDir(), "input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, in := range map[string]*os.File{"/dev/null": null, "a pipe": r, "a file": file} {
+		os.Stdin = in
+		if isTerminal() {
+			t.Errorf("%s was taken for a terminal", name)
+		}
+		in.Close()
+		if isTerminal() {
+			t.Errorf("%s, closed, was taken for a terminal", name)
+		}
 	}
 }

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Commands run without a terminal no longer stop at the language question**: under cron,
+  systemd or `docker exec` without `-i`, `status`, `backup` and `uninstall` run unattended.
+
 ## 7.7.0
 
 AnsibleForms 7.7.0.

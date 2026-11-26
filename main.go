@@ -15,6 +15,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/charmbracelet/x/term"
+
 	"github.com/ansibleforms/installer/internal/cli"
 	"github.com/ansibleforms/installer/internal/compose"
 	"github.com/ansibleforms/installer/internal/i18n"
@@ -143,12 +145,13 @@ var (
 	runCommand = cli.Run
 )
 
-// isTerminal tells whether the installer can ask questions: its input is a terminal.
+// isTerminal tells whether the installer can ask questions: its input is a terminal, as the
+// install script's [ -t 0 ] says. /dev/null (cron, systemd, docker exec without -i), a pipe and
+// a file are none, so the installer runs unattended there.
 //
 // Returns:
 //
 //	True for a terminal.
 func isTerminal() bool {
-	fi, err := os.Stdin.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(os.Stdin.Fd())
 }

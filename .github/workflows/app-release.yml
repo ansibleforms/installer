@@ -99,6 +99,25 @@ jobs:
         if: steps.target.outputs.base == '' && fromJSON(steps.target.outputs.major) <= fromJSON(steps.target.outputs.current)
         run: echo "::notice::No installer line follows AnsibleForms ${{ steps.target.outputs.major }} any more, nothing to bump."
 
+      # The RTE images are published by ansibleforms/rte, a few minutes after the app's own
+      # image. The installer of this version installs ansibleforms-rte-full of the same
+      # version, so the bump waits until it is published : a release never points at an image
+      # that is not there yet
+      - name: Wait for the RTE of the version
+        if: steps.target.outputs.base != ''
+        env:
+          VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if docker manifest inspect "ghcr.io/ansibleforms/ansibleforms-rte-full:${VERSION}" >/dev/null 2>&1; then
+              echo "ghcr.io/ansibleforms/ansibleforms-rte-full:${VERSION} is published."; exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::ghcr.io/ansibleforms/ansibleforms-rte-full:${VERSION} was not published within 30 minutes. Once ansibleforms/rte published it, run this workflow again by hand with ${VERSION}."
+          exit 1
+
       - uses: actions/create-github-app-token@v3
         id: app
         if: steps.target.outputs.base != ''
